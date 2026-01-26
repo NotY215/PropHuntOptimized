@@ -16,7 +16,6 @@ public class PropHuntOptimized extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
-
         saveDefaultConfig();
 
         arenaManager = new ArenaManager(this);

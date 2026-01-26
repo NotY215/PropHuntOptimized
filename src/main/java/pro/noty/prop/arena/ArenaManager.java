@@ -1,20 +1,26 @@
 package pro.noty.prop.arena;
 
-import java.util.*;
+import pro.noty.prop.PropHuntOptimized;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class ArenaManager {
 
-    private final Map<String, Arena> arenas = new HashMap<>();
+    private final Map<String, Arena> arenaMap = new HashMap<>();
+    private final PropHuntOptimized plugin;
 
-    public ArenaManager(Object plugin) {}
+    public ArenaManager(PropHuntOptimized plugin) {
+        this.plugin = plugin;
+    }
 
     public Arena createArena(String name) {
         Arena arena = new Arena(name);
-        arenas.put(name.toLowerCase(), arena);
+        arenaMap.put(name.toLowerCase(), arena);
         return arena;
     }
 
     public Arena getArena(String name) {
-        return arenas.get(name.toLowerCase());
+        return arenaMap.get(name.toLowerCase());
     }
 }
