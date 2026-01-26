@@ -35,4 +35,9 @@ public class PropHuntOptimized extends JavaPlugin {
     public ArenaManager getArenaManager() { return arenaManager; }
     public GameManager getGameManager() { return gameManager; }
     public DisguiseManager getDisguiseManager() { return disguiseManager; }
+    public void reloadPlugin() {
+        reloadConfig();
+        arenaManager.loadArenas();
+    }
+
 }

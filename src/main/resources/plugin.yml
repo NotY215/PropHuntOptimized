@@ -18,3 +18,7 @@ permissions:
     default: true
   prophunt.leave:
     default: true
+    permissions:
+      prophunt.admin:
+        default: op
+

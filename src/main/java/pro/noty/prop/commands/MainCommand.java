@@ -24,8 +24,18 @@ public class MainCommand implements CommandExecutor, TabCompleter {
 
         Arena arena = plugin.getArenaManager().getArena(args[0]);
         if (arena==null && !args[1].equalsIgnoreCase("create")) { p.sendMessage("§cArena not found"); return true; }
+        if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
+            if (!p.hasPermission("prophunt.admin")) {
+                p.sendMessage("§cNo permission.");
+                return true;
+            }
+            plugin.reloadPlugin();
+            p.sendMessage("§aPropHunt config and arenas reloaded!");
+            return true;
+        }
 
         GameManager gm = plugin.getGameManager();
+
 
         if (args.length==2) {
             switch(args[1].toLowerCase()) {
@@ -52,13 +62,18 @@ public class MainCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§e/mb <arena> setspawn §7- Set seeker spawn");
         p.sendMessage("§e/mb <arena> join §7- Join game");
         p.sendMessage("§e/mb <arena> leave §7- Leave game");
+        p.sendMessage("§e/mb reload §7- Reload plugin files");
+
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
-        if (args.length==1) {
+        if (args.length == 1) {
+            completions.add("reload");
             plugin.getArenaManager().getArenaMap().keySet().forEach(completions::add);
+
+
         } else if (args.length==2) {
             completions.add("join");
             completions.add("leave");

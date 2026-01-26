@@ -111,45 +111,70 @@ public class GameManager implements Listener {
     /* ================= GAME START ================= */
 
     private void startGame(Arena arena) {
-        session.inGame = true;
-        session.players.forEach(p -> p.getInventory().clear()); // remove diamonds
+        List<Player> players = arena.getPlayers().stream()
+                .map(Bukkit::getPlayer)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
 
-        // Broadcast title
-        session.players.forEach(p -> p.sendTitle("§6Prop Hunt", "§eGame Started!", 10, 60, 10));
+        if (players.size() < 2) return;
 
-        // Select hunter
-        Player hunter = session.players.get(new Random().nextInt(session.players.size()));
-        session.hunter = hunter;
-        session.seekers = new ArrayList<>(session.players);
-        session.seekers.remove(hunter);
+        Player hunter = players.get(new Random().nextInt(players.size()));
+        hunters.put(arena.getName(), hunter.getUniqueId());
 
-        session.players.forEach(p -> p.setGameMode(GameMode.ADVENTURE));
-        giveHunterKit(hunter);
-        session.seekers.forEach(this::giveSeekerKit);
+        for (Player p : players) {
+            p.getInventory().clear();
+            p.setGameMode(GameMode.ADVENTURE);
 
-        // Blindness for hunter
-        hunter.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, plugin.getConfig().getInt("blindness-seconds")*20, 1));
+            if (p.equals(hunter)) {
+                // Hunter stays in lobby
+                p.teleport(arena.getLobby());
+                giveHunterKit(p);
 
-        // Seeker lobby -> spawn after hide countdown
-        startHideCountdown(arena);
+                // Blindness during hiding phase
+                p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 20 * hidingSeconds, 1, false, false));
+                p.sendTitle("§cYou are the Hunter!", "§7Wait for seekers to hide...", 10, 60, 10);
+
+            } else {
+                // Seekers go to arena spawn FIRST
+                p.teleport(arena.getSpawn());
+                giveSeekerKit(p);
+                seekers.add(p.getUniqueId());
+                p.sendTitle("§aYou are a Seeker!", "§7Hide quickly!", 10, 60, 10);
+            }
+        }
+
+        startHidingCountdown(arena, hunter);
     }
 
-    private void startHideCountdown(Arena arena) {
-        int hideTime = plugin.getConfig().getInt("countdown-seconds");
+
+    private void startHidingCountdown(Arena arena, Player hunter) {
         new BukkitRunnable() {
-            int time = hideTime;
+            int time = hidingSeconds;
+
             public void run() {
                 if (time <= 0) {
-                    session.seekers.forEach(p -> p.teleport(arena.getSpawn()));
+                    // Release hunter into arena
+                    hunter.teleport(arena.getSpawn());
+                    hunter.removePotionEffect(PotionEffectType.BLINDNESS);
+                    hunter.sendTitle("§cHUNT STARTED!", "", 5, 40, 5);
+
+                    startMainGameTimer(arena);
                     cancel();
-                    startMainTimer();
-                } else {
-                    session.seekers.forEach(p -> p.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText("§eHiding Time: §c" + time + "s")));
-                    time--;
+                    return;
                 }
+
+                for (UUID uuid : seekers) {
+                    Player seeker = Bukkit.getPlayer(uuid);
+                    if (seeker != null)
+                        seeker.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                new TextComponent("§eHiding Time: §c" + time + "s"));
+                }
+
+                time--;
             }
-        }.runTaskTimer(plugin,0,20);
+        }.runTaskTimer(plugin, 0, 20);
     }
+
 
     /* ================= MAIN TIMER ================= */
 

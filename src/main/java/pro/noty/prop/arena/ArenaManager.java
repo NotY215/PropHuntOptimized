@@ -23,6 +23,10 @@ public class ArenaManager {
         loadArenas();
     }
 
+    public Map<String, Arena> getArenaMap() { // ✅ FIX ADDED
+        return arenaMap;
+    }
+
     public Arena createArena(String name) {
         Arena arena = new Arena(name);
         arenaMap.put(name.toLowerCase(), arena);
@@ -45,19 +49,24 @@ public class ArenaManager {
     }
 
     public void loadArenas() {
+        arenaMap.clear(); // IMPORTANT for reload
+
         if (!arenaFolder.exists()) return;
         for (File file : arenaFolder.listFiles()) {
             if (!file.getName().endsWith(".yml")) continue;
             YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
             String name = file.getName().replace(".yml", "");
             Arena arena = new Arena(name);
+
             if (cfg.contains("lobby")) arena.setLobby(stringToLocation(cfg.getString("lobby")));
             if (cfg.contains("spawn")) arena.setSpawn(stringToLocation(cfg.getString("spawn")));
             if (cfg.contains("pos1")) arena.setPos1(stringToLocation(cfg.getString("pos1")));
             if (cfg.contains("pos2")) arena.setPos2(stringToLocation(cfg.getString("pos2")));
+
             arenaMap.put(name.toLowerCase(), arena);
         }
     }
+
 
     private String locationToString(Location loc) {
         return loc.getWorld().getName() + "," + loc.getX() + "," + loc.getY() + "," + loc.getZ() + "," + loc.getYaw() + "," + loc.getPitch();
