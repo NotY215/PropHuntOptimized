@@ -1,6 +1,7 @@
 package pro.noty.prop.game;
 
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.boss.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
@@ -15,6 +16,8 @@ import org.bukkit.potion.*;
 import org.bukkit.scheduler.BukkitRunnable;
 import pro.noty.prop.PropHuntOptimized;
 import pro.noty.prop.arena.Arena;
+import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.TextComponent;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -141,7 +144,7 @@ public class GameManager implements Listener {
                     cancel();
                     startMainTimer();
                 } else {
-                    session.seekers.forEach(p -> p.sendActionBar("§eHiding Time: §c" + time + "s"));
+                    session.seekers.forEach(p -> p.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText("§eHiding Time: §c" + time + "s")));
                     time--;
                 }
             }
