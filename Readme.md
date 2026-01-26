@@ -17,35 +17,39 @@ Seekers disguise themselves as blocks in the arena and try to survive until time
 
 ## ✨ Core Features
 
-### 🧱 Advanced Block Morph System
+### 🧱 Advanced Block Morph System (Upgraded)
 
-* Players visually transform into **real Minecraft blocks**
-* Block moves **smoothly with the player**
-* Block **never rotates** on any axis
-* Player can still **walk, jump, and rotate camera freely**
+* Players visually transform into **real Minecraft blocks** and appear **inside the block** with correct alignment.
+* Block morph aligns seamlessly with **neighboring walls, fences, panes, and connectable blocks**.
+* Blocks **never rotate**, maintaining fixed orientation.
+* Player can still **walk, jump, and rotate camera freely**.
+* Smooth interpolation with minor delay for natural movement.
 * Morph ends only if:
 
   * Player morphs into another block
   * Player looks into the sky with a spyglass
   * Player dies
 
-### 🌟 Visual Effects (NEW)
+### 🌟 Enhanced Visual & Audio Effects
 
 * Morph cloud + magical sound
 * Demorph smoke effect
 * Fake block hit particles when hunter attacks a disguised player
-* Smooth interpolation for natural block sliding
-* Anti‑spam morph cooldown
+* Smooth glide with realistic delay
+* Anti-spam morph cooldown
 
 ### 🧱 Smart Block Connections
 
-If a player morphs into:
+* Morphing into walls, fences, and panes connects visually to nearby blocks as in normal Minecraft.
+* Player model is fully inside the block with proper first-person perspective.
 
-* Walls
-* Fences
-* Panes
+---
 
-Their disguise **visually connects** to nearby blocks just like real Minecraft blocks.
+## ⏱ Time-Based Game Mechanics
+
+* **After 5 minutes**, seeker difficulty increases (less morph duration, fewer movement advantages).
+* **Final 1 minute**, hunter is upgraded with a **Netherite Sword**, making the hunt more challenging.
+* Dynamic game progression keeps matches intense.
 
 ---
 
@@ -57,7 +61,7 @@ Their disguise **visually connects** to nearby blocks just like real Minecraft b
 4. **Seekers spawn in arena first** to hide
 5. Hunter waits in lobby with blindness
 6. Hiding timer ends → Hunter released
-7. Main game timer begins
+7. Main game timer begins with dynamic difficulty
 8. Game ends when all seekers are found or time expires
 
 ---
@@ -67,8 +71,8 @@ Their disguise **visually connects** to nearby blocks just like real Minecraft b
 ### 🟥 Hunter
 
 * Starts in lobby
-* Has temporary blindness during hiding phase
-* Receives wooden sword
+* Temporary blindness during hiding phase
+* Receives wooden sword (Netherite in last 1 min)
 * Must find all disguised players
 
 ### 🟩 Seekers (Props)
@@ -118,9 +122,10 @@ Players remain in **Adventure Mode** at all times.
 * Countdown cancels if players leave
 * Leave item only before match start
 * Inventories cleared at start & end
-* Death auto‑spectator mode
+* Death auto-spectator mode
 * Automatic game reset
 * BossBar shows remaining seekers + time left
+* Time-based upgrades for hunter and difficulty scaling for seekers
 
 ---
 
@@ -149,6 +154,8 @@ max-players: 10
 countdown-seconds: 30
 hiding-seconds: 20
 game-time-seconds: 300
+hunter-upgrade-time: 240 # time in seconds when hunter gets netherite sword
+difficulty-increase-time: 300 # time in seconds when seeker difficulty increases
 ```
 
 ---
