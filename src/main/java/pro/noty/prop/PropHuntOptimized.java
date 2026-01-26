@@ -22,7 +22,12 @@ public class PropHuntOptimized extends JavaPlugin {
         disguiseManager = new DisguiseManager(this);
         gameManager = new GameManager(this);
 
-        getCommand("mb").setExecutor(new MainCommand(this));
+        // Commands
+        MainCommand mainCommand = new MainCommand(this);
+        getCommand("mb").setExecutor(mainCommand);
+        getCommand("mb").setTabCompleter(mainCommand);
+
+        // Events
         getServer().getPluginManager().registerEvents(gameManager, this);
     }
 

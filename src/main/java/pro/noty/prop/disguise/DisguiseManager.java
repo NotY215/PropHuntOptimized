@@ -14,36 +14,34 @@ public class DisguiseManager {
     private final Map<Player, BlockDisplay> disguises = new HashMap<>();
     private final JavaPlugin plugin;
 
-    public DisguiseManager(JavaPlugin plugin) {
-        this.plugin = plugin;
-    }
+    public DisguiseManager(JavaPlugin plugin) { this.plugin = plugin; }
 
+    // Player moves with block, block never rotates, player invisible
     public void disguise(Player player, Material material) {
         removeDisguise(player);
         if (!material.isBlock()) return;
 
         player.setInvisible(true);
-        player.setCollidable(false);
+        BlockDisplay block = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
+        block.setBlock(material.createBlockData());
+        block.setInvulnerable(true);
+        block.setGravity(false);
 
-        BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
-        display.setBlock(material.createBlockData());
-        display.setInvulnerable(true);
-        display.setGravity(false);
+        // Keep block at player location on move
+        plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (player.isOnline() && !player.isDead()) {
+                block.teleport(player.getLocation());
+            }
+        }, 0L, 1L);
 
-        Transformation t = display.getTransformation();
-        t.getScale().set(1.0f, 1.0f, 1.0f); // block never rotates
-        display.setTransformation(t);
-
-        display.addPassenger(player);
-        disguises.put(player, display);
+        disguises.put(player, block);
     }
 
     public void removeDisguise(Player player) {
-        BlockDisplay d = disguises.remove(player);
-        if (d != null && !d.isDead()) d.remove();
+        BlockDisplay block = disguises.remove(player);
+        if (block != null && !block.isDead()) block.remove();
         player.setInvisible(false);
-        player.setCollidable(true);
     }
 
-    public boolean isDisguised(Player p) { return disguises.containsKey(p); }
+    public boolean isDisguised(Player player) { return disguises.containsKey(player); }
 }
