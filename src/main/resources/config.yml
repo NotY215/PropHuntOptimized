@@ -1,0 +1,13 @@
+countdown-seconds: 60
+min-players: 2
+max-players: 10
+game-time-seconds: 600
+blindness-seconds: 30
+
+end-commands:
+  - "eco give %winner% 10000"
+  - "say %winner% won Prop Hunt!"
+  - "eco take %looser% 50"
+
+messages:
+  prefix: "&6[PropHunt] "

@@ -1,0 +1,20 @@
+name: PropHuntOptimized
+main: pro.noty.prop.PropHuntOptimized
+version: 1.1
+api-version: 1.21
+author: NotY215
+depend: [Vault, ProtocolLib]
+softdepend: [Essentials]
+
+commands:
+  mb:
+    description: Main Prop Hunt command
+    usage: /mb
+
+permissions:
+  prophunt.admin:
+    default: op
+  prophunt.join:
+    default: true
+  prophunt.leave:
+    default: true
