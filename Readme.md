@@ -1,130 +1,151 @@
 # 🎭 PropHuntOptimized
 
-A high‑performance **Prop Hunt / Block Morph** minigame plugin for Minecraft servers.
-Built for smooth gameplay, clean mechanics, and cross‑version visual disguises.
+**PropHuntOptimized** is a modern, high‑performance **Prop Hunt / Block Morph** minigame plugin for Minecraft servers.
+Designed for smooth visuals, competitive gameplay, and immersive disguises using advanced block display mechanics.
 
 ---
 
-## 🔥 Core Game Concept
+## 🧩 Game Overview
 
-One player becomes the **Hunter** and the rest become **Seekers (Props)**.
-Seekers disguise themselves as blocks in the map while the Hunter tries to find and eliminate them before time runs out.
+One player becomes the **Hunter** while the others become **Seekers (Props)**.
+Seekers disguise themselves as blocks in the arena and try to survive until time runs out.
 
-If all seekers are found → **Hunter Wins**
-If time runs out → **Seekers Win**
+🏆 **Hunter Wins** → All seekers are eliminated
+🏆 **Seekers Win** → Time runs out
 
 ---
 
-## ✨ Main Features
+## ✨ Core Features
 
-### 🧱 Block Morph System
+### 🧱 Advanced Block Morph System
 
-* Players transform into **real-looking blocks**
-* Blocks **move with the player**
-* Blocks **never rotate** (always placed position)
-* Player can **move and rotate camera freely**
-* Morph stays until:
+* Players visually transform into **real Minecraft blocks**
+* Block moves **smoothly with the player**
+* Block **never rotates** on any axis
+* Player can still **walk, jump, and rotate camera freely**
+* Morph ends only if:
 
-  * Player changes block
-  * Player looks into the sky using a spyglass
+  * Player morphs into another block
+  * Player looks into the sky with a spyglass
   * Player dies
 
-### 🎯 Game Flow
+### 🌟 Visual Effects (NEW)
 
-* Lobby waiting system
-* Auto game start when minimum players join
-* Countdown cancels if players leave
-* Hiding phase before hunter is released
-* BossBar timer with remaining seekers count
-* Automatic win detection
+* Morph cloud + magical sound
+* Demorph smoke effect
+* Fake block hit particles when hunter attacks a disguised player
+* Smooth interpolation for natural block sliding
+* Anti‑spam morph cooldown
 
-### ⚔ Roles
+### 🧱 Smart Block Connections
 
-**Hunter**
+If a player morphs into:
 
-* Spawns in lobby during hiding phase
-* Has blindness until hiding ends
-* Receives sword kit
+* Walls
+* Fences
+* Panes
 
-**Seekers**
-
-* Spawn in arena at start
-* Use spyglass to morph into blocks
-* Get food + rockets
+Their disguise **visually connects** to nearby blocks just like real Minecraft blocks.
 
 ---
 
-## 🛡 Arena Protection
+## 🎮 Game Flow
 
-While a game is running:
+1. Players join the arena lobby
+2. Auto countdown starts when minimum players join
+3. Roles are assigned randomly
+4. **Seekers spawn in arena first** to hide
+5. Hunter waits in lobby with blindness
+6. Hiding timer ends → Hunter released
+7. Main game timer begins
+8. Game ends when all seekers are found or time expires
+
+---
+
+## ⚔ Roles
+
+### 🟥 Hunter
+
+* Starts in lobby
+* Has temporary blindness during hiding phase
+* Receives wooden sword
+* Must find all disguised players
+
+### 🟩 Seekers (Props)
+
+* Spawn in arena at game start
+* Use spyglass to morph into blocks
+* Get food + fireworks
+* Must survive until timer ends
+
+---
+
+## 🛡 Arena Protections
+
+During a match:
 
 * ❌ No block breaking
 * ❌ No mob spawning
 * ❌ No portal usage
-* ❌ No arena griefing
+* ❌ No leaving arena bounds
+* ❌ No item dropping exploits
+
+Players remain in **Adventure Mode** at all times.
 
 ---
 
-## 🎮 Commands
+## 🎯 Commands
 
-| Command             | Description              |
-| ------------------- | ------------------------ |
-| `/mb create <name>` | Create arena             |
-| `/mb pos1`          | Set arena position 1     |
-| `/mb pos2`          | Set arena position 2     |
-| `/mb setlobby`      | Set lobby spawn          |
-| `/mb setspawn`      | Set game spawn           |
-| `/mb join <arena>`  | Join game                |
-| `/mb leave`         | Leave current game       |
-| `/mb reload`        | Reload all arena configs |
-| `/mb help`          | Show help menu           |
+| Command             | Description                 |
+| ------------------- | --------------------------- |
+| `/mb pos1`          | Set arena corner position 1 |
+| `/mb pos2`          | Set arena corner position 2 |
+| `/mb create <name>` | Create arena                |
+| `/mb setlobby`      | Set lobby location          |
+| `/mb setspawn`      | Set seeker spawn location   |
+| `/mb join <arena>`  | Join game                   |
+| `/mb <arena> leave` | Leave current game          |
+| `/mb reload`        | Reload config & arena files |
+| `/mb help`          | Show help menu              |
 
-✔ Full tab completion included
-
----
-
-## 🧠 Smart Mechanics
-
-* Players cannot join twice
-* Countdown stops if player count drops
-* Leave item only before game start
-* Inventories cleared on game start & end
-* Death auto switches player to spectator
-* Game auto resets after finish
+✅ Full **Tab Completion** supported
 
 ---
 
-## 💾 Data Saving
+## 🧠 Smart Game Mechanics
 
-All arenas are saved in:
+* Prevents double joining
+* Countdown cancels if players leave
+* Leave item only before match start
+* Inventories cleared at start & end
+* Death auto‑spectator mode
+* Automatic game reset
+* BossBar shows remaining seekers + time left
+
+---
+
+## 💾 Data Storage
+
+All arena data is saved in:
 
 ```
 /plugins/PropHuntOptimized/arenas/
 ```
 
-Each arena uses its own **YAML file** storing:
+Each arena has its own **YML file** storing:
 
-* Positions
-* Lobby
-* Spawn
-* Settings
-
----
-
-## 📺 Creator Channels
-
-Support the project ❤️
-
-[![YouTube](https://img.shields.io/badge/YouTube-NotY215-red?style=for-the-badge\&logo=youtube)](https://www.youtube.com/@NotY215)
-
-[![Movies Channel](https://img.shields.io/badge/YouTube-NotY215_Movies-darkred?style=for-the-badge\&logo=youtube)](https://www.youtube.com/@noty215_movies)
+* Arena positions
+* Lobby spawn
+* Game spawn
+* Arena settings
 
 ---
 
-## ⚙ Recommended Settings
+## ⚙ Configuration Example
 
 ```yml
 min-players: 2
+max-players: 10
 countdown-seconds: 30
 hiding-seconds: 20
 game-time-seconds: 300
@@ -132,27 +153,40 @@ game-time-seconds: 300
 
 ---
 
-## 🧩 Requirements
+## 🔌 Requirements
 
 * Paper / Spigot 1.20+
-* ProtocolLib (recommended for best disguise sync)
+* ProtocolLib (recommended for best visual sync)
+* Vault + EssentialsX (optional for rewards)
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation Guide
 
-1. Drop plugin into `/plugins`
+1. Place **PropHuntOptimized.jar** in `/plugins`
 2. Start server
-3. Create arena
-4. Set positions & spawns
-5. Players can now join and play!
+3. Set arena with pos1 & pos2
+4. Create arena
+5. Set lobby and spawn
+6. Players can now join and play!
 
 ---
 
-## 💬 Support
+## 📺 Creator Channels
 
-If you find bugs or want new features, reach out via YouTube comments.
+Support development ❤️
+
+[![YouTube](https://img.shields.io/badge/YouTube-NotY215-red?style=for-the-badge\&logo=youtube)](https://www.youtube.com/@NotY215)
+
+[![Movies Channel](https://img.shields.io/badge/YouTube-NotY215_Movies-darkred?style=for-the-badge\&logo=youtube)](https://www.youtube.com/@noty215_movies)
 
 ---
 
-**Made with ❤️ for fun Prop Hunt servers**
+## 💬 Support & Updates
+
+Found a bug or want a feature?
+Leave a comment on the YouTube channels above.
+
+---
+
+**Made with ❤️ for epic Prop Hunt servers**

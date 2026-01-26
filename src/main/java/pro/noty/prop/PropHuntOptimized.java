@@ -30,6 +30,11 @@ public class PropHuntOptimized extends JavaPlugin {
         // Events
         getServer().getPluginManager().registerEvents(gameManager, this);
     }
+    @Override
+    public void onDisable() {
+        disguiseManager.cleanupAll();
+    }
+
 
     public static PropHuntOptimized get() { return instance; }
     public ArenaManager getArenaManager() { return arenaManager; }

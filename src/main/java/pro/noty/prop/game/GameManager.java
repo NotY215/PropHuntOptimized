@@ -247,14 +247,12 @@ public class GameManager implements Listener {
     public void onHit(EntityDamageByEntityEvent e) {
         if (!(e.getDamager() instanceof Player hunter)) return;
         if (!(e.getEntity() instanceof Player seeker)) return;
-        if (!session.seekers.contains(seeker)) return;
 
-        plugin.getDisguiseManager().removeDisguise(seeker);
-        session.seekers.remove(seeker);
-        seeker.setGameMode(GameMode.SPECTATOR);
-
-        if (session.seekers.isEmpty()) endGame(true);
+        if (plugin.getDisguiseManager().isDisguised(seeker)) {
+            plugin.getDisguiseManager().playFakeBlockHit(seeker);
+        }
     }
+
 
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
