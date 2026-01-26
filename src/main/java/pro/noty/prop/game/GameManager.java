@@ -3,15 +3,14 @@ package pro.noty.prop.game;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.boss.*;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.event.*;
-import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.player.*;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.*;
 import org.bukkit.scheduler.BukkitRunnable;
 import pro.noty.prop.PropHuntOptimized;
@@ -20,211 +19,229 @@ import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class GameManager implements Listener {
 
     private final PropHuntOptimized plugin;
-    private final NamespacedKey undroppableKey;
-    private final GameSession session;
+    private final GameSession session = new GameSession();
 
     public GameManager(PropHuntOptimized plugin) {
         this.plugin = plugin;
-        this.undroppableKey = new NamespacedKey(plugin, "undroppable");
-        this.session = new GameSession();
     }
 
-    /* ================= JOIN ================= */
-    // Handles only 1 arena for now
+    /* ========================================================= */
+    /* ======================= JOIN ============================== */
+    /* ========================================================= */
+
     public void joinArena(Player p, Arena arena) {
         if (session.inGame) {
-            p.sendMessage("§cGame is already in progress!");
+            p.sendMessage("§cGame already running!");
             return;
         }
-        if (arena.getPlayers().contains(p.getUniqueId())) {
-            p.sendMessage("§cYou already joined this game!");
+        if (session.players.contains(p)) {
+            p.sendMessage("§cYou already joined!");
             return;
         }
-        arena.getPlayers().add(p.getUniqueId());
+
+        session.players.add(p);
+        session.arena = arena;
+
         p.teleport(arena.getLobby());
         p.setGameMode(GameMode.ADVENTURE);
         p.getInventory().addItem(createLeaveDiamond());
-        p.sendMessage("§aYou joined arena " + arena.getName());
-        session.players.add(p);
 
-        if (arena.getPlayers().size() >= plugin.getConfig().getInt("min-players")) {
-            startCountdown(arena);
+        p.sendMessage("§aJoined arena §e" + arena.getName());
+
+        if (session.players.size() >= plugin.getConfig().getInt("min-players")) {
+            startCountdown();
         }
     }
 
     private ItemStack createLeaveDiamond() {
-        ItemStack diamond = new ItemStack(Material.DIAMOND);
-        ItemMeta meta = diamond.getItemMeta();
-        meta.setDisplayName("§cLeave Game");
-        diamond.setItemMeta(meta);
-        return diamond;
+        ItemStack d = new ItemStack(Material.DIAMOND);
+        ItemMeta m = d.getItemMeta();
+        m.setDisplayName("§cLeave Game");
+        d.setItemMeta(m);
+        return d;
     }
 
-    /* ================= LEAVE ================= */
+    /* ========================================================= */
+    /* ======================= LEAVE ============================= */
+    /* ========================================================= */
 
     public void leaveGame(Player p) {
-        if (!session.players.contains(p)) {
-            p.sendMessage("§cYou are not in the game!");
-            return;
-        }
-        session.players.remove(p);
-        p.getInventory().clear();
-        p.setGameMode(GameMode.ADVENTURE);
-        p.teleport(session.arena.getLobby());
-        p.sendMessage("§aYou left the game!");
+        if (!session.players.contains(p)) return;
 
-        if (session.players.size() < plugin.getConfig().getInt("min-players") && session.countdownTask != null) {
-            session.countdownTask.cancel();
-            broadcast("§cCountdown stopped because not enough players!");
+        plugin.getDisguiseManager().removeDisguise(p);
+        session.players.remove(p);
+        session.seekers.remove(p);
+
+        p.getInventory().clear();
+        p.teleport(session.arena.getLobby());
+        p.setGameMode(GameMode.ADVENTURE);
+
+        if (!session.inGame && session.players.size() < plugin.getConfig().getInt("min-players")) {
+            if (session.countdownTask != null) session.countdownTask.cancel();
         }
     }
 
-    /* ================= COUNTDOWN ================= */
+    /* ========================================================= */
+    /* ==================== COUNTDOWN ============================ */
+    /* ========================================================= */
 
-    private void startCountdown(Arena arena) {
-        if (session.countdownTask != null) session.countdownTask.cancel();
+    private void startCountdown() {
         session.countdownTime = plugin.getConfig().getInt("countdown-seconds");
+
         session.countdownTask = new BukkitRunnable() {
             public void run() {
                 if (session.players.size() < plugin.getConfig().getInt("min-players")) {
                     cancel();
-                    broadcast("§cCountdown stopped!");
                     return;
                 }
                 if (session.countdownTime <= 0) {
                     cancel();
-                    startGame(arena);
+                    startGame();
                     return;
                 }
-                broadcast("§eGame starts in §c" + session.countdownTime + "s");
+                broadcast("§eGame starts in §c" + session.countdownTime);
                 session.countdownTime--;
             }
         };
         session.countdownTask.runTaskTimer(plugin, 0, 20);
     }
 
-    /* ================= GAME START ================= */
+    /* ========================================================= */
+    /* ===================== GAME START ========================== */
+    /* ========================================================= */
 
-    private void startGame(Arena arena) {
-        List<Player> players = arena.getPlayers().stream()
-                .map(Bukkit::getPlayer)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+    private void startGame() {
+        session.inGame = true;
 
-        if (players.size() < 2) return;
-
-        Player hunter = players.get(new Random().nextInt(players.size()));
-        hunters.put(arena.getName(), hunter.getUniqueId());
+        List<Player> players = new ArrayList<>(session.players);
+        session.hunter = players.get(new Random().nextInt(players.size()));
 
         for (Player p : players) {
             p.getInventory().clear();
             p.setGameMode(GameMode.ADVENTURE);
 
-            if (p.equals(hunter)) {
-                // Hunter stays in lobby
-                p.teleport(arena.getLobby());
+            if (p.equals(session.hunter)) {
+                p.teleport(session.arena.getLobby());
                 giveHunterKit(p);
-
-                // Blindness during hiding phase
-                p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 20 * hidingSeconds, 1, false, false));
-                p.sendTitle("§cYou are the Hunter!", "§7Wait for seekers to hide...", 10, 60, 10);
-
+                p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 20 * 30, 1));
+                p.sendTitle("§cYou are the Hunter!", "§7Wait...", 10, 60, 10);
             } else {
-                // Seekers go to arena spawn FIRST
-                p.teleport(arena.getSpawn());
+                session.seekers.add(p);
+                p.teleport(session.arena.getSpawn());
                 giveSeekerKit(p);
-                seekers.add(p.getUniqueId());
-                p.sendTitle("§aYou are a Seeker!", "§7Hide quickly!", 10, 60, 10);
+                p.sendTitle("§aYou are a Seeker!", "§7Hide!", 10, 60, 10);
             }
         }
 
-        startHidingCountdown(arena, hunter);
+        startHidingPhase();
     }
 
+    /* ========================================================= */
+    /* ==================== HIDING PHASE ========================= */
+    /* ========================================================= */
 
-    private void startHidingCountdown(Arena arena, Player hunter) {
+    private void startHidingPhase() {
+        int hidingSeconds = plugin.getConfig().getInt("hiding-seconds");
+
         new BukkitRunnable() {
-            int time = hidingSeconds;
+            int t = hidingSeconds;
 
             public void run() {
-                if (time <= 0) {
-                    // Release hunter into arena
-                    hunter.teleport(arena.getSpawn());
-                    hunter.removePotionEffect(PotionEffectType.BLINDNESS);
-                    hunter.sendTitle("§cHUNT STARTED!", "", 5, 40, 5);
-
-                    startMainGameTimer(arena);
+                if (t <= 0) {
+                    session.hunter.teleport(session.arena.getSpawn());
+                    session.hunter.removePotionEffect(PotionEffectType.BLINDNESS);
+                    startMainTimer();
                     cancel();
                     return;
                 }
 
-                for (UUID uuid : seekers) {
-                    Player seeker = Bukkit.getPlayer(uuid);
-                    if (seeker != null)
-                        seeker.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent("§eHiding Time: §c" + time + "s"));
+                for (Player s : session.seekers) {
+                    s.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                            new TextComponent("§eHiding: §c" + t));
                 }
-
-                time--;
+                t--;
             }
         }.runTaskTimer(plugin, 0, 20);
     }
 
-
-    /* ================= MAIN TIMER ================= */
+    /* ========================================================= */
+    /* ==================== MAIN GAME TIMER ====================== */
+    /* ========================================================= */
 
     private void startMainTimer() {
         int gameTime = plugin.getConfig().getInt("game-time-seconds");
-        session.gameBar = Bukkit.createBossBar("Time Left: " + gameTime, BarColor.RED, BarStyle.SOLID);
+
+        session.gameBar = Bukkit.createBossBar("Time Left", BarColor.RED, BarStyle.SOLID);
         session.getAll().forEach(session.gameBar::addPlayer);
 
         new BukkitRunnable() {
             int t = gameTime;
+
             public void run() {
-                if (t <= 0) { endGame(false); cancel(); return; }
-                session.gameBar.setProgress(t/(double)gameTime);
-                session.gameBar.setTitle("Seekers: "+session.seekers.size()+" | Time: "+t);
+                if (t <= 0) {
+                    endGame(false);
+                    cancel();
+                    return;
+                }
+                session.gameBar.setTitle("Seekers: " + session.seekers.size() + " | " + t + "s");
+                session.gameBar.setProgress(t / (double) gameTime);
                 t--;
             }
-        }.runTaskTimer(plugin,0,20);
+        }.runTaskTimer(plugin, 0, 20);
     }
 
-    /* ================= KITS ================= */
+    /* ========================================================= */
+    /* ======================== KITS ============================= */
+    /* ========================================================= */
 
-    private void giveHunterKit(Player p) { p.getInventory().addItem(new ItemStack(Material.WOODEN_SWORD)); }
+    private void giveHunterKit(Player p) {
+        p.getInventory().addItem(new ItemStack(Material.WOODEN_SWORD));
+    }
+
     private void giveSeekerKit(Player p) {
         p.getInventory().addItem(new ItemStack(Material.SPYGLASS));
-        p.getInventory().addItem(new ItemStack(Material.COOKED_BEEF,16));
-        ItemStack rocket = new ItemStack(Material.FIREWORK_ROCKET,5);
-        FireworkMeta meta = (FireworkMeta) rocket.getItemMeta(); meta.setPower(1); rocket.setItemMeta(meta);
+        p.getInventory().addItem(new ItemStack(Material.COOKED_BEEF, 16));
+        ItemStack rocket = new ItemStack(Material.FIREWORK_ROCKET, 5);
+        FireworkMeta meta = (FireworkMeta) rocket.getItemMeta();
+        meta.setPower(1);
+        rocket.setItemMeta(meta);
         p.getInventory().addItem(rocket);
     }
 
-    /* ================= MORPH SYSTEM ================= */
+    /* ========================================================= */
+    /* ======================== MORPH ============================ */
+    /* ========================================================= */
 
     @EventHandler
     public void onSpyglass(PlayerInteractEvent e) {
-        if (e.getItem()==null||e.getItem().getType()!=Material.SPYGLASS) return;
+        if (e.getItem() == null || e.getItem().getType() != Material.SPYGLASS) return;
         Player p = e.getPlayer();
         Block target = p.getTargetBlockExact(10);
 
-        // Sky => remove morph
-        if (target==null||target.getType()==Material.AIR) {
+        if (target == null || target.getType() == Material.AIR) {
             plugin.getDisguiseManager().removeDisguise(p);
-            p.sendMessage("§eReturned to normal form");
             return;
         }
-
-        if (!target.getType().isBlock()) return;
-        plugin.getDisguiseManager().disguise(p,target.getType());
+        plugin.getDisguiseManager().disguise(p, target.getType());
     }
 
-    /* ================= HUNTER HIT ================= */
+    /* ========================================================= */
+    /* ==================== ARENA PROTECTION ===================== */
+    /* ========================================================= */
+
+    @EventHandler public void onBlockBreak(BlockBreakEvent e) { if (session.inGame) e.setCancelled(true); }
+    @EventHandler public void onPortal(PlayerPortalEvent e) { if (session.inGame) e.setCancelled(true); }
+    @EventHandler public void onMobSpawn(CreatureSpawnEvent e) {
+        if (session.arena != null && session.arena.isInside(e.getLocation())) e.setCancelled(true);
+    }
+
+    /* ========================================================= */
+    /* ======================= COMBAT ============================ */
+    /* ========================================================= */
 
     @EventHandler
     public void onHit(EntityDamageByEntityEvent e) {
@@ -235,51 +252,42 @@ public class GameManager implements Listener {
         plugin.getDisguiseManager().removeDisguise(seeker);
         session.seekers.remove(seeker);
         seeker.setGameMode(GameMode.SPECTATOR);
-        checkEndConditions();
-    }
 
-    private void checkEndConditions() {
         if (session.seekers.isEmpty()) endGame(true);
-        if (session.hunter.isDead()) endGame(false);
     }
-
-    /* ================= DEATH ================= */
 
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
         Player p = e.getEntity();
         plugin.getDisguiseManager().removeDisguise(p);
+
         if (p.equals(session.hunter)) endGame(false);
-        if (session.seekers.contains(p)) session.seekers.remove(p);
-        checkEndConditions();
+        if (session.seekers.contains(p)) {
+            session.seekers.remove(p);
+            if (session.seekers.isEmpty()) endGame(true);
+        }
     }
 
-    /* ================= END GAME ================= */
+    /* ========================================================= */
+    /* ======================= END GAME ========================== */
+    /* ========================================================= */
 
     private void endGame(boolean hunterWon) {
-        Player winner = hunterWon ? session.hunter : session.seekers.get(0);
-        Player loser = hunterWon ? session.seekers.get(0) : session.hunter;
-
-        for (String cmd: plugin.getConfig().getStringList("end-commands")) {
-            cmd = cmd.replace("%winner%",winner.getName()).replace("%loser%",loser.getName());
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
-        }
-
-        session.getAll().forEach(p->{
+        for (Player p : session.getAll()) {
             plugin.getDisguiseManager().removeDisguise(p);
             p.getInventory().clear();
-            p.setGameMode(GameMode.ADVENTURE);
             p.teleport(session.arena.getLobby());
-        });
-        if (session.gameBar!=null) session.gameBar.removeAll();
+        }
+
+        if (session.gameBar != null) session.gameBar.removeAll();
         session.reset();
     }
 
-    /* ================= UTILITIES ================= */
+    private void broadcast(String msg) { session.getAll().forEach(p -> p.sendMessage(msg)); }
 
-    private void broadcast(String msg) { session.getAll().forEach(p->p.sendMessage(msg)); }
-
-    /* ================= SESSION CLASS ================= */
+    /* ========================================================= */
+    /* ===================== SESSION DATA ======================== */
+    /* ========================================================= */
 
     private static class GameSession {
         Arena arena;
@@ -291,7 +299,18 @@ public class GameManager implements Listener {
         BukkitRunnable countdownTask;
         int countdownTime;
 
-        void reset() { inGame=false; players.clear(); seekers.clear(); hunter=null; countdownTask=null; countdownTime=0; }
-        List<Player> getAll() { List<Player> all=new ArrayList<>(players); if(hunter!=null) all.add(hunter); return all; }
+        void reset() {
+            inGame = false;
+            players.clear();
+            seekers.clear();
+            hunter = null;
+            countdownTask = null;
+        }
+
+        List<Player> getAll() {
+            List<Player> all = new ArrayList<>(players);
+            if (hunter != null) all.add(hunter);
+            return all;
+        }
     }
 }
