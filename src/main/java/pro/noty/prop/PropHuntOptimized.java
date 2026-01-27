@@ -2,47 +2,43 @@ package pro.noty.prop;
 
 import org.bukkit.plugin.java.JavaPlugin;
 import pro.noty.prop.arena.ArenaManager;
-import pro.noty.prop.commands.MainCommand;
 import pro.noty.prop.disguise.DisguiseManager;
 import pro.noty.prop.game.GameManager;
+import pro.noty.prop.listeners.*;
 
-public class PropHuntOptimized extends JavaPlugin {
+public final class PropHuntOptimized extends JavaPlugin {
 
-    private static PropHuntOptimized instance;
     private ArenaManager arenaManager;
-    private GameManager gameManager;
     private DisguiseManager disguiseManager;
+    private GameManager gameManager;
 
     @Override
     public void onEnable() {
-        instance = this;
         saveDefaultConfig();
 
-        arenaManager = new ArenaManager(this);
-        disguiseManager = new DisguiseManager(this);
-        gameManager = new GameManager(this);
+        this.arenaManager = new ArenaManager(this);
+        this.disguiseManager = new DisguiseManager(this);
+        this.gameManager = new GameManager(this, disguiseManager);
 
-        // Commands
-        MainCommand mainCommand = new MainCommand(this);
-        getCommand("mb").setExecutor(mainCommand);
-        getCommand("mb").setTabCompleter(mainCommand);
+        getServer().getPluginManager().registerEvents(new SpyglassMorphListener(this, gameManager), this);
+        getServer().getPluginManager().registerEvents(new GameListener(this, gameManager), this);
+        getServer().getPluginManager().registerEvents(new ArenaProtectionListener(gameManager), this);
 
-        // Events
-        getServer().getPluginManager().registerEvents(gameManager, this);
+        getCommand("mb").setExecutor(new pro.noty.prop.commands.MainCommand(this));
+        getCommand("mb").setTabCompleter(new pro.noty.prop.commands.MainCommand(this));
     }
+
     @Override
     public void onDisable() {
         disguiseManager.cleanupAll();
     }
 
-
-    public static PropHuntOptimized get() { return instance; }
     public ArenaManager getArenaManager() { return arenaManager; }
     public GameManager getGameManager() { return gameManager; }
     public DisguiseManager getDisguiseManager() { return disguiseManager; }
+
     public void reloadPlugin() {
         reloadConfig();
         arenaManager.loadArenas();
     }
-
 }

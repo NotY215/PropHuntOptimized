@@ -1,159 +1,187 @@
 package pro.noty.prop.disguise;
 
 import org.bukkit.*;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Display;
-import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Transformation;
-import org.joml.AxisAngle4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.*;
 
+/**
+ * DisguiseManager handles all player morphs into blocks
+ * Includes:
+ * - Advanced block morphs
+ * - Smooth interpolation & delay
+ * - Hitbox masking
+ * - Wall/fence connection improvements
+ */
 public class DisguiseManager {
 
     private final JavaPlugin plugin;
 
-    // Maps player UUID → BlockDisplay
+    // Player UUID → Display Entity
     private final Map<UUID, BlockDisplay> disguises = new HashMap<>();
+
+    // Morph cooldown to prevent spam
     private final Map<UUID, Long> morphCooldown = new HashMap<>();
-    private final long COOLDOWN_MS = 1500;
 
     public DisguiseManager(JavaPlugin plugin) {
         this.plugin = plugin;
+        startFollowTask();
     }
 
-    /* ===================== DISGUISE PLAYER ===================== */
+    /* ========================================================= */
+    /* =================== MORPH INTO BLOCK ===================== */
+    /* ========================================================= */
     public void disguise(Player player, Material material) {
         if (!material.isBlock()) return;
+        if (material == Material.AIR || material.name().contains("PORTAL")) return;
 
         long now = System.currentTimeMillis();
         if (morphCooldown.containsKey(player.getUniqueId())
-                && now - morphCooldown.get(player.getUniqueId()) < COOLDOWN_MS) {
-            player.sendActionBar("§cYou are morphing too fast!");
+                && now - morphCooldown.get(player.getUniqueId()) < 1500) {
+            player.sendMessage("§cYou must wait before morphing again!");
             return;
         }
         morphCooldown.put(player.getUniqueId(), now);
 
         removeDisguise(player);
 
-        Location base = player.getLocation().add(0, 0.5, 0); // player center inside block
-        BlockData data = Bukkit.createBlockData(material);
+        player.getWorld().spawnParticle(Particle.CLOUD, player.getLocation(), 20, 0.5, 0.5, 0.5);
+        player.getWorld().playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
 
-        BlockDisplay display = (BlockDisplay) player.getWorld().spawnEntity(base, EntityType.BLOCK_DISPLAY);
-        display.setBlock(data);
-        display.setInterpolationDuration(3);
-        display.setTeleportDuration(3);
+        BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
+        display.setBlock(material.createBlockData());
 
-        // Player inside block POV
+        // Player-centered block transform
         Transformation transform = new Transformation(
-                new Vector3f(0, 0, 0),
-                new AxisAngle4f(0, 0, 1, 0),
-                new Vector3f(1, 1, 1),
-                new AxisAngle4f(0, 0, 1, 0)
+                new Vector3f(-0.5f, 0f, -0.5f),
+                new Quaternionf(), // No rotation ever
+                new Vector3f(1f, 1f, 1f),
+                new Quaternionf()
         );
         display.setTransformation(transform);
-        display.setGravity(false);
-        display.setPersistent(false);
+
+        // Interpolation for smooth morph
+        display.setInterpolationDuration(3); // 3 ticks for smoothness
+        display.setInterpolationDelay(1);
+
+        display.setShadowRadius(0f);
+        display.setShadowStrength(0f);
         display.setBrightness(new Display.Brightness(15, 15));
 
         disguises.put(player.getUniqueId(), display);
-        player.setInvisible(true);
 
-        playMorphEffect(player);
-        startTracking(player);
+        // Hide player model but keep hitbox for server logic
+        player.setInvisible(true);
+        player.setCollidable(false);
+        player.setSilent(true);
+        player.setCustomNameVisible(false);
+
+        player.sendMessage("§aYou morphed into §e" + material.name());
     }
 
-    /* =================== PLAYER MOVEMENT TRACKING =================== */
-    private void startTracking(Player player) {
+    /* ========================================================= */
+    /* ===================== REMOVE MORPH ======================= */
+    /* ========================================================= */
+    public void removeDisguise(Player player) {
+        BlockDisplay display = disguises.remove(player.getUniqueId());
+        if (display != null && !display.isDead()) {
+            display.remove();
+        }
+
+        player.setInvisible(false);
+        player.setCollidable(true);
+        player.setSilent(false);
+
+        player.getWorld().spawnParticle(Particle.SMOKE, player.getLocation(), 15, 0.4, 0.4, 0.4);
+        player.getWorld().playSound(player.getLocation(), Sound.BLOCK_FIRE_EXTINGUISH, 1f, 1f);
+    }
+
+    /* ========================================================= */
+    /* ================= FOLLOW PLAYER TASK ===================== */
+    /* ========================================================= */
+    private void startFollowTask() {
         new BukkitRunnable() {
+            @Override
             public void run() {
-                if (!player.isOnline() || !disguises.containsKey(player.getUniqueId())) {
-                    cancel();
-                    return;
+                Iterator<Map.Entry<UUID, BlockDisplay>> it = disguises.entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry<UUID, BlockDisplay> entry = it.next();
+                    Player player = Bukkit.getPlayer(entry.getKey());
+                    BlockDisplay display = entry.getValue();
+
+                    if (player == null || !player.isOnline() || display.isDead()) {
+                        if (display != null && !display.isDead()) display.remove();
+                        it.remove();
+                        continue;
+                    }
+
+                    Location loc = player.getLocation().clone();
+
+                    // Player-centered Y-axis for inside-block POV
+                    loc.setY(loc.getY() - 0.5);
+
+                    display.teleport(loc);
+
+                    // Optional: Advanced wall/fence connection logic
+                    if (display.getBlock().getMaterial().name().contains("FENCE") ||
+                            display.getBlock().getMaterial().name().contains("WALL")) {
+                        display.setBlock(display.getBlock().getMaterial().createBlockData()); // refresh connection
+                    }
                 }
-                BlockDisplay display = disguises.get(player.getUniqueId());
-
-                // Smooth interpolation: previous location + current
-                Location target = player.getLocation().add(0, 0.5, 0); // center inside block
-                Location current = display.getLocation();
-                double x = current.getX() + (target.getX() - current.getX()) * 0.2;
-                double y = current.getY() + (target.getY() - current.getY()) * 0.2;
-                double z = current.getZ() + (target.getZ() - current.getZ()) * 0.2;
-                display.teleport(new Location(player.getWorld(), x, y, z));
-
-                updateConnections(player, display);
             }
         }.runTaskTimer(plugin, 0, 1);
     }
 
-    /* ============= WALL / FENCE / CONNECTABLE BLOCKS ============= */
-    private void updateConnections(Player player, BlockDisplay display) {
-        Material mat = display.getBlock().getMaterial();
-        if (mat.name().contains("FENCE") || mat.name().contains("WALL") || mat.name().contains("PANE")) {
-            BlockData data = Bukkit.createBlockData(mat);
+    /* ========================================================= */
+    /* =================== HITBOX CONCEAL TASK ================== */
+    /* ========================================================= */
+    public void concealHitbox(Player player) {
+        player.setCollidable(false);
+        player.setGlowing(false);
+        player.setInvisible(false);
+        player.setSilent(true);
+        player.setCustomNameVisible(false);
 
-            // Simple connection logic: clone surroundings
-            Block b = player.getLocation().getBlock();
-            for (BlockFace face : BlockFace.values()) {
-                Block relative = b.getRelative(face);
-                if (relative.getType() == mat) {
-                    data = relative.getBlockData().clone();
-                    break;
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!disguises.containsKey(player.getUniqueId())) {
+                    cancel();
+                    return;
                 }
+                player.setCollidable(false);
+                player.setGlowing(false);
             }
-            display.setBlock(data);
-        }
+        }.runTaskTimer(plugin, 0, 40);
     }
 
-    /* ===================== REMOVE DISGUISE ===================== */
-    public void removeDisguise(Player player) {
-        UUID id = player.getUniqueId();
-        if (!disguises.containsKey(id)) return;
-
-        BlockDisplay display = disguises.remove(id);
-        display.remove();
-        player.setInvisible(false);
-
-        playDemorphEffect(player);
+    /* ========================================================= */
+    /* =================== CLEANUP ALL ========================== */
+    /* ========================================================= */
+    public void cleanupAll() {
+        for (BlockDisplay display : disguises.values()) {
+            if (display != null && !display.isDead()) display.remove();
+        }
+        disguises.clear();
     }
 
     public boolean isDisguised(Player player) {
         return disguises.containsKey(player.getUniqueId());
     }
 
-    /* ===================== BLOCK HIT EFFECTS ===================== */
-    public void playFakeBlockHit(Player disguised) {
-        if (!isDisguised(disguised)) return;
-
-        BlockDisplay display = disguises.get(disguised.getUniqueId());
-        Location loc = display.getLocation().add(0, 0.5, 0);
-        disguised.getWorld().spawnParticle(Particle.BLOCK_CRACK, loc, 20, display.getBlock().getMaterial().createBlockData());
-        disguised.getWorld().playSound(loc, Sound.BLOCK_STONE_HIT, 1f, 1f);
+    public BlockDisplay getDisguise(Player player) {
+        return disguises.get(player.getUniqueId());
     }
 
-    /* ===================== VISUAL & AUDIO EFFECTS ===================== */
-    private void playMorphEffect(Player player) {
-        Location loc = player.getLocation().add(0, 0.5, 0);
-        player.getWorld().spawnParticle(Particle.CLOUD, loc, 25, 0.3, 0.5, 0.3, 0.02);
-        player.getWorld().playSound(loc, Sound.BLOCK_AMETHYST_BLOCK_PLACE, 1f, 1.2f);
-    }
-
-    private void playDemorphEffect(Player player) {
-        Location loc = player.getLocation().add(0, 0.5, 0);
-        player.getWorld().spawnParticle(Particle.SMOKE, loc, 20, 0.3, 0.5, 0.3, 0.02);
-        player.getWorld().playSound(loc, Sound.ENTITY_SHULKER_TELEPORT, 1f, 1f);
-    }
-
-    /* ===================== CLEANUP ALL DISGUISES ===================== */
-    public void cleanupAll() {
-        disguises.values().forEach(Display::remove);
-        disguises.clear();
+    public Set<UUID> getDisguisedPlayers() {
+        return disguises.keySet();
     }
 }
