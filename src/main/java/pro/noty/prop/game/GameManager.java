@@ -13,6 +13,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.*;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 import pro.noty.prop.disguise.DisguiseManager;
 import pro.noty.prop.arena.Arena;
 
@@ -36,9 +37,9 @@ public class GameManager implements Listener {
 
     private final int lobbyTime = 60;
     private final int hideTime = 30;
-    private final int gameTime = 570;
+    private final int gameTime = 570; // 9:30 mins total hunt
 
-    private BukkitRunnable timerTask;
+    private BukkitTask timerTask; // Fixed type to prevent compilation error
     private Player hunterPlayer;
     private int elapsedSeconds = 0;
 
@@ -46,11 +47,12 @@ public class GameManager implements Listener {
         this.plugin = plugin;
         this.disguiseManager = disguiseManager;
         this.statsManager = new StatsManager();
-        Bukkit.getPluginManager().registerEvents(this, plugin); // Register internal firework listener
+        // Register events to handle firework logic internally
+        Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
     /* ========================================================= */
-    /* =================== FIREWORK HANDLER ==================== */
+    /* =================== FIREWORK LOGIC ====================== */
     /* ========================================================= */
 
     @EventHandler
@@ -61,19 +63,17 @@ public class GameManager implements Listener {
         if (e.getAction() == Action.RIGHT_CLICK_AIR || e.getAction() == Action.RIGHT_CLICK_BLOCK) {
             ItemStack item = e.getItem();
             if (item != null && item.getType() == Material.FIREWORK_ROCKET) {
-                e.setCancelled(true); // Stop standard placing
+                e.setCancelled(true);
 
-                // Launch functional firework
-                Firework fw = p.getWorld().spawn(p.getLocation(), Firework.class);
-                FireworkMeta meta = fw.getFireworkMeta();
-                meta.addEffect(FireworkEffect.builder().withColor(Color.RED).withFade(Color.ORANGE).with(FireworkEffect.Type.BALL_LARGE).build());
-                meta.setPower(1);
-                fw.setFireworkMeta(meta);
+                // Spawn functional firework with sound
+                Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
+                FireworkMeta fmeta = fw.getFireworkMeta();
+                fmeta.addEffect(FireworkEffect.builder().withColor(Color.RED).withFade(Color.YELLOW).with(FireworkEffect.Type.BALL).build());
+                fmeta.setPower(1);
+                fw.setFireworkMeta(fmeta);
 
-                // Sound effect for hunter to hear
                 p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1.0f, 1.0f);
 
-                // Consume item
                 if (item.getAmount() > 1) item.setAmount(item.getAmount() - 1);
                 else p.getInventory().setItemInMainHand(null);
             }
@@ -96,8 +96,7 @@ public class GameManager implements Listener {
             p.teleport(arena.getLobby());
             p.getInventory().clear();
             p.setGameMode(GameMode.ADVENTURE);
-            // Visibility fix: Ensure they are visible when joining lobby
-            p.removePotionEffect(PotionEffectType.INVISIBILITY);
+            pReset(p); // Remove any old effects
         }
 
         int minPlayers = plugin.getConfig().getInt("min-players", 2);
@@ -112,6 +111,7 @@ public class GameManager implements Listener {
         lobbyCountdownActive = true;
         new BukkitRunnable() {
             int count = lobbyTime;
+            @Override
             public void run() {
                 if (inGame.size() < plugin.getConfig().getInt("min-players", 2)) {
                     broadcast("§cNot enough players! Countdown stopped.");
@@ -150,7 +150,6 @@ public class GameManager implements Listener {
         UUID hId = players.remove(0);
         hunterPlayer = Bukkit.getPlayer(hId);
         hunters.add(hId);
-
         for (UUID sId : players) seekers.add(sId);
 
         assignKits();
@@ -167,8 +166,8 @@ public class GameManager implements Listener {
             p.getInventory().addItem(new ItemStack(Material.GOLDEN_CARROT, 64));
             p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bSound Maker", 64));
             p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bSound Maker", 64));
+            pReset(p);
             p.sendTitle("§a§lSEEKER", "§7Hide quickly!", 10, 60, 10);
-            p.removePotionEffect(PotionEffectType.INVISIBILITY);
         }
 
         if (hunterPlayer != null) {
@@ -184,6 +183,7 @@ public class GameManager implements Listener {
     private void startHidingPhase() {
         new BukkitRunnable() {
             int count = hideTime;
+            @Override
             public void run() {
                 if (!gameRunning) { this.cancel(); return; }
                 for (UUID id : inGame) {
@@ -208,13 +208,13 @@ public class GameManager implements Listener {
             hunterPlayer.removePotionEffect(PotionEffectType.SLOWNESS);
             hunterPlayer.teleport(arena.getSpawn());
             hunterPlayer.sendTitle("§c§lGO!", "Find the props!", 10, 40, 10);
-            hunterPlayer.playSound(hunterPlayer.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 1f, 1f);
         }
     }
 
     private void startMainTimer() {
         timerTask = new BukkitRunnable() {
             int timeLeft = gameTime;
+            @Override
             public void run() {
                 if (!gameRunning) { this.cancel(); return; }
                 elapsedSeconds++;
@@ -223,10 +223,7 @@ public class GameManager implements Listener {
                     if (p != null) statsManager.updateScoreboard(p, "Finding", timeLeft, seekers.size());
                 }
                 handleHunterUpgrades(timeLeft);
-                if (timeLeft <= 0) {
-                    endGame(false);
-                    this.cancel();
-                }
+                if (timeLeft <= 0) { endGame(false); this.cancel(); }
                 timeLeft--;
             }
         }.runTaskTimer(plugin, 0, 20);
@@ -251,12 +248,10 @@ public class GameManager implements Listener {
         spectators.add(seeker.getUniqueId());
         seeker.setGameMode(GameMode.SPECTATOR);
         seeker.getInventory().clear();
-        disguiseManager.removeDisguise(seeker); // Ensure disguise is removed on death
+        disguiseManager.removeDisguise(seeker);
+        pReset(seeker);
 
-        if (hunterPlayer != null) {
-            statsManager.addKill(hunterPlayer.getUniqueId());
-            broadcast("§e" + seeker.getName() + " §7was caught! (§c" + seekers.size() + " §7left)");
-        }
+        if (hunterPlayer != null) statsManager.addKill(hunterPlayer.getUniqueId());
         if (seekers.isEmpty()) endGame(true);
     }
 
@@ -285,15 +280,17 @@ public class GameManager implements Listener {
                 p.setGameMode(GameMode.ADVENTURE);
                 p.teleport(arena.getLobby());
                 p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-                p.removePotionEffect(PotionEffectType.INVISIBILITY);
+                pReset(p);
             }
         }
-
         disguiseManager.cleanupAll();
-        inGame.clear();
-        hunters.clear();
-        seekers.clear();
-        spectators.clear();
+        inGame.clear(); hunters.clear(); seekers.clear(); spectators.clear();
+    }
+
+    private void pReset(Player p) {
+        p.removePotionEffect(PotionEffectType.INVISIBILITY);
+        p.removePotionEffect(PotionEffectType.BLINDNESS);
+        p.removePotionEffect(PotionEffectType.SLOWNESS);
     }
 
     private void executeEndCommands(List<Player> winners, List<Player> losers) {
@@ -306,24 +303,17 @@ public class GameManager implements Listener {
     }
 
     /* ========================================================= */
-    /* ======================== API ============================ */
+    /* ======================== API/COMPAT ===================== */
     /* ========================================================= */
 
-    public boolean isInGame(Player p) { return inGame.contains(p.getUniqueId()); }
-    public boolean isHunter(Player p) { return hunters.contains(p.getUniqueId()); }
-    public boolean isSeeker(Player p) { return seekers.contains(p.getUniqueId()); }
     public void leaveGame(Player p) {
         if (!isInGame(p)) return;
         UUID id = p.getUniqueId();
-        inGame.remove(id);
-        hunters.remove(id);
-        seekers.remove(id);
-        spectators.remove(id);
+        inGame.remove(id); hunters.remove(id); seekers.remove(id); spectators.remove(id);
         disguiseManager.removeDisguise(p);
         p.getInventory().clear();
-        p.setGameMode(GameMode.ADVENTURE);
         p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-        p.removePotionEffect(PotionEffectType.INVISIBILITY);
+        pReset(p);
         if (arena != null) p.teleport(arena.getLobby());
         if (gameRunning && (hunters.isEmpty() || seekers.isEmpty())) endGame(seekers.isEmpty());
     }
@@ -334,11 +324,10 @@ public class GameManager implements Listener {
         else if (isSeeker(p)) eliminateSeeker(p);
     }
 
-    private void broadcast(String msg) {
-        for (UUID id : inGame) {
-            Player p = Bukkit.getPlayer(id);
-            if (p != null) p.sendMessage("§6[PropHunt] " + msg);
-        }
+    public void showLeaderboard(Player p) {
+        p.sendMessage("§6§l=== PROP HUNT LEADERBOARD ===");
+        p.sendMessage("§eYour Wins: §f" + statsManager.getWins(p.getUniqueId()));
+        p.sendMessage("§eYour Kills: §f" + statsManager.getKills(p.getUniqueId()));
     }
 
     private ItemStack createNamedItem(Material mat, String name, int amt) {
@@ -348,9 +337,9 @@ public class GameManager implements Listener {
         return item;
     }
 
-    public void showLeaderboard(Player p) {
-        p.sendMessage("§6§l=== PROP HUNT LEADERBOARD ===");
-        p.sendMessage("§eYour Wins: §f" + statsManager.getWins(p.getUniqueId()));
-        p.sendMessage("§eYour Kills: §f" + statsManager.getKills(p.getUniqueId()));
-    }
+    public boolean isInGame(Player p) { return inGame.contains(p.getUniqueId()); }
+    public boolean isHunter(Player p) { return hunters.contains(p.getUniqueId()); }
+    public boolean isSeeker(Player p) { return seekers.contains(p.getUniqueId()); }
+    public boolean isGameRunning() { return gameRunning; }
+    private void broadcast(String msg) { for (UUID id : inGame) { Player p = Bukkit.getPlayer(id); if (p != null) p.sendMessage("§6[PropHunt] " + msg); } }
 }

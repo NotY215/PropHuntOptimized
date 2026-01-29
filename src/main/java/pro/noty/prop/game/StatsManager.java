@@ -20,7 +20,7 @@ public class StatsManager {
     public void updateScoreboard(Player player, String state, int time, int seekersLeft) {
         Scoreboard board = player.getScoreboard();
 
-        // Ensure we don't overwrite server-wide scoreboards accidentally
+        // Use a unique board for the game instance
         if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
             board = Bukkit.getScoreboardManager().getNewScoreboard();
         }
@@ -31,10 +31,8 @@ public class StatsManager {
             obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         }
 
-        // Clear old scores to prevent overlapping lines
-        for (String entry : board.getEntries()) {
-            board.resetScores(entry);
-        }
+        // Clear entries to ensure fresh data every tick
+        board.getEntries().forEach(board::resetScores);
 
         obj.getScore("§7----------------").setScore(10);
         obj.getScore("§fStatus: §e" + state).setScore(9);
