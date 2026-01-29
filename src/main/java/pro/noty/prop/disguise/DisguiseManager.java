@@ -35,15 +35,10 @@ public class DisguiseManager {
 
         removeDisguise(player);
 
-        // Visual effects for morphing
-        player.getWorld().spawnParticle(Particle.CLOUD, player.getLocation(), 20, 0.5, 0.5, 0.5);
-        player.getWorld().playSound(player.getLocation(), Sound.ENTITY_CHICKEN_EGG, 1f, 1f);
-
         BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
         display.setBlock(material.createBlockData());
 
-        // FIX: Centered on player's legs (aligns with both feet center)
-        // Translation of -0.5 on X and Z centers a 1.0 wide block on the player's 0,0 center
+        // Centered transform for precise block alignment
         Transformation transform = new Transformation(
                 new Vector3f(-0.5f, 0.0f, -0.5f),
                 new Quaternionf(),
@@ -55,11 +50,7 @@ public class DisguiseManager {
         display.setBrightness(new Display.Brightness(15, 15));
 
         disguises.put(player.getUniqueId(), display);
-
-        // FIX: Handle Invisibility properly
-        player.setInvisible(true);
-        // We do NOT hide the player from others entirely here, otherwise projectiles/hits won't register.
-        // Invisibility effect is enough for the "ghostly" feel or model removal.
+        player.setInvisible(true); // Hide player model
     }
 
     public void removeDisguise(Player player) {
@@ -67,7 +58,8 @@ public class DisguiseManager {
         if (display != null) display.remove();
 
         player.setInvisible(false);
-        // FIX: Force visibility update for everyone
+
+        // FIX: Force visibility update for all players to prevent "stuck" invisibility
         for (Player online : Bukkit.getOnlinePlayers()) {
             online.showPlayer(plugin, player);
         }
@@ -88,8 +80,6 @@ public class DisguiseManager {
                         it.remove();
                         continue;
                     }
-
-                    // Move to player feet location
                     display.teleport(player.getLocation());
                 }
             }
@@ -97,9 +87,11 @@ public class DisguiseManager {
     }
 
     public void cleanupAll() {
-        disguises.values().forEach(BlockDisplay::remove);
+        // Ensure all players are revealed on cleanup
+        for (UUID uuid : disguises.keySet()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) removeDisguise(p);
+        }
         disguises.clear();
     }
-
-    public boolean isDisguised(Player player) { return disguises.containsKey(player.getUniqueId()); }
 }
