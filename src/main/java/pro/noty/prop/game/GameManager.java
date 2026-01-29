@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
@@ -19,6 +20,9 @@ import pro.noty.prop.arena.Arena;
 
 import java.util.*;
 
+/**
+ * GameManager handles the core loop, combat, kits, and API for Prop Hunt.
+ */
 public class GameManager implements Listener {
 
     private final JavaPlugin plugin;
@@ -37,9 +41,9 @@ public class GameManager implements Listener {
 
     private final int lobbyTime = 60;
     private final int hideTime = 30;
-    private final int gameTime = 570; // 9:30 mins total hunt
+    private final int gameTime = 570;
 
-    private BukkitTask timerTask; // Fixed type to prevent compilation error
+    private BukkitTask timerTask;
     private Player hunterPlayer;
     private int elapsedSeconds = 0;
 
@@ -47,12 +51,29 @@ public class GameManager implements Listener {
         this.plugin = plugin;
         this.disguiseManager = disguiseManager;
         this.statsManager = new StatsManager();
-        // Register events to handle firework logic internally
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
     /* ========================================================= */
-    /* =================== FIREWORK LOGIC ====================== */
+    /* =================== COMBAT & HEALTH FIX ================= */
+    /* ========================================================= */
+
+    @EventHandler
+    public void onCombat(EntityDamageByEntityEvent e) {
+        if (!(e.getEntity() instanceof Player victim) || !(e.getDamager() instanceof Player attacker)) return;
+        if (!isInGame(victim) || !isInGame(attacker)) return;
+
+        // FIX: Ensure Seeker takes normal damage until death instead of dying in one hit
+        if (isSeeker(victim) && isHunter(attacker)) {
+            if (victim.getHealth() - e.getFinalDamage() <= 0) {
+                e.setCancelled(true);
+                handleDeath(victim);
+            }
+        }
+    }
+
+    /* ========================================================= */
+    /* =================== UPDATED ROCKET LOGIC ================= */
     /* ========================================================= */
 
     @EventHandler
@@ -60,23 +81,31 @@ public class GameManager implements Listener {
         Player p = e.getPlayer();
         if (!isInGame(p) || !isSeeker(p)) return;
 
-        if (e.getAction() == Action.RIGHT_CLICK_AIR || e.getAction() == Action.RIGHT_CLICK_BLOCK) {
-            ItemStack item = e.getItem();
-            if (item != null && item.getType() == Material.FIREWORK_ROCKET) {
-                e.setCancelled(true);
+        ItemStack item = e.getItem();
+        if (item == null || item.getType() != Material.FIREWORK_ROCKET) return;
 
-                // Spawn functional firework with sound
-                Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
-                FireworkMeta fmeta = fw.getFireworkMeta();
-                fmeta.addEffect(FireworkEffect.builder().withColor(Color.RED).withFade(Color.YELLOW).with(FireworkEffect.Type.BALL).build());
-                fmeta.setPower(1);
-                fw.setFireworkMeta(fmeta);
+        // FIX: Allow placement on blocks, but blast in the air
+        if (e.getAction() == Action.RIGHT_CLICK_BLOCK) {
+            return; // Minecraft handles placement naturally
+        }
 
-                p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1.0f, 1.0f);
+        if (e.getAction() == Action.RIGHT_CLICK_AIR) {
+            e.setCancelled(true);
 
-                if (item.getAmount() > 1) item.setAmount(item.getAmount() - 1);
-                else p.getInventory().setItemInMainHand(null);
-            }
+            // Spawn blast-style firework
+            Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
+            FireworkMeta fmeta = fw.getFireworkMeta();
+            fmeta.addEffect(FireworkEffect.builder()
+                    .withColor(Color.AQUA).withFade(Color.WHITE)
+                    .with(FireworkEffect.Type.BURST).trail(true).build());
+            fmeta.setPower(0);
+            fw.setFireworkMeta(fmeta);
+            fw.detonate(); // Immediate blast
+
+            p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1.0f, 1.0f);
+
+            if (item.getAmount() > 1) item.setAmount(item.getAmount() - 1);
+            else p.getInventory().setItemInMainHand(null);
         }
     }
 
@@ -96,7 +125,8 @@ public class GameManager implements Listener {
             p.teleport(arena.getLobby());
             p.getInventory().clear();
             p.setGameMode(GameMode.ADVENTURE);
-            pReset(p); // Remove any old effects
+            p.setHealth(20.0); // Reset Health
+            pReset(p);
         }
 
         int minPlayers = plugin.getConfig().getInt("min-players", 2);
@@ -121,7 +151,7 @@ public class GameManager implements Listener {
                 }
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
-                    if (p != null) statsManager.updateScoreboard(p, "Lobby", count, 0);
+                    if (p != null) updateScoreboard(p, "Lobby", count);
                 }
                 if (count <= 0) {
                     startGame();
@@ -162,10 +192,10 @@ public class GameManager implements Listener {
             if (p == null) continue;
             p.teleport(arena.getSpawn());
             p.getInventory().clear();
+            p.setHealth(20.0);
             p.getInventory().addItem(new ItemStack(Material.SPYGLASS, 1));
             p.getInventory().addItem(new ItemStack(Material.GOLDEN_CARROT, 64));
-            p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bSound Maker", 64));
-            p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bSound Maker", 64));
+            p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bFlash Rocket", 64));
             pReset(p);
             p.sendTitle("§a§lSEEKER", "§7Hide quickly!", 10, 60, 10);
         }
@@ -188,7 +218,7 @@ public class GameManager implements Listener {
                 if (!gameRunning) { this.cancel(); return; }
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
-                    if (p != null) statsManager.updateScoreboard(p, "Hiding", count, seekers.size());
+                    if (p != null) updateScoreboard(p, "Hiding", count);
                 }
                 if (count <= 0) {
                     releaseHunter();
@@ -220,7 +250,7 @@ public class GameManager implements Listener {
                 elapsedSeconds++;
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
-                    if (p != null) statsManager.updateScoreboard(p, "Finding", timeLeft, seekers.size());
+                    if (p != null) updateScoreboard(p, "Finding", timeLeft);
                 }
                 handleHunterUpgrades(timeLeft);
                 if (timeLeft <= 0) { endGame(false); this.cancel(); }
@@ -291,6 +321,15 @@ public class GameManager implements Listener {
         p.removePotionEffect(PotionEffectType.INVISIBILITY);
         p.removePotionEffect(PotionEffectType.BLINDNESS);
         p.removePotionEffect(PotionEffectType.SLOWNESS);
+        // Force visibility fix
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            online.showPlayer(plugin, p);
+        }
+    }
+
+    private void updateScoreboard(Player p, String status, int time) {
+        // Dynamic Scoreboard API call
+        statsManager.updateScoreboard(p, status, time, seekers.size(), (arena != null ? arena.getName() : "None"));
     }
 
     private void executeEndCommands(List<Player> winners, List<Player> losers) {

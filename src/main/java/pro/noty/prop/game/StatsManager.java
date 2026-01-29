@@ -17,10 +17,8 @@ public class StatsManager {
     public int getWins(UUID id) { return wins.getOrDefault(id, 0); }
     public int getKills(UUID id) { return kills.getOrDefault(id, 0); }
 
-    public void updateScoreboard(Player player, String state, int time, int seekersLeft) {
+    public void updateScoreboard(Player player, String state, int time, int seekersLeft, String arenaName) {
         Scoreboard board = player.getScoreboard();
-
-        // Use a unique board for the game instance
         if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
             board = Bukkit.getScoreboardManager().getNewScoreboard();
         }
@@ -31,14 +29,16 @@ public class StatsManager {
             obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         }
 
-        // Clear entries to ensure fresh data every tick
         board.getEntries().forEach(board::resetScores);
 
-        obj.getScore("§7----------------").setScore(10);
-        obj.getScore("§fStatus: §e" + state).setScore(9);
-        obj.getScore("§fTime: §a" + formatTime(time)).setScore(8);
-        obj.getScore("§fSeekers: §c" + seekersLeft).setScore(7);
-        obj.getScore("§1 ").setScore(6);
+        obj.getScore("§7----------------").setScore(13);
+        obj.getScore("§fArena: §e" + arenaName).setScore(12);
+        obj.getScore("§fStatus: §e" + state).setScore(11);
+        obj.getScore("§fTime: §a" + formatTime(time)).setScore(10);
+        obj.getScore("§1 ").setScore(9);
+        obj.getScore("§fProps Left: §c" + seekersLeft).setScore(8);
+        obj.getScore("§fYour Health: §4" + (int)player.getHealth() + "❤").setScore(7);
+        obj.getScore("§2 ").setScore(6);
         obj.getScore("§fKills: §e" + getKills(player.getUniqueId())).setScore(5);
         obj.getScore("§fWins: §e" + getWins(player.getUniqueId())).setScore(4);
         obj.getScore("§7---------------- ").setScore(3);
