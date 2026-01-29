@@ -1,6 +1,7 @@
 countdown-seconds: 60
 min-players: 2
 max-players: 10
+hiding-seconds: 30
 game-time-seconds: 600
 blindness-seconds: 30
 
