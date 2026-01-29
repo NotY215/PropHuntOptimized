@@ -21,7 +21,7 @@ import pro.noty.prop.arena.Arena;
 import java.util.*;
 
 /**
- * GameManager handles the core loop, combat, kits, and API for Prop Hunt.
+ * GameManager handles the core loop, combat, kits, and cleanup for Prop Hunt.
  */
 public class GameManager implements Listener {
 
@@ -63,7 +63,7 @@ public class GameManager implements Listener {
         if (!(e.getEntity() instanceof Player victim) || !(e.getDamager() instanceof Player attacker)) return;
         if (!isInGame(victim) || !isInGame(attacker)) return;
 
-        // FIX: Ensure Seeker takes normal damage until death instead of dying in one hit
+        // Ensure Seeker takes normal damage until death instead of dying in one hit
         if (isSeeker(victim) && isHunter(attacker)) {
             if (victim.getHealth() - e.getFinalDamage() <= 0) {
                 e.setCancelled(true);
@@ -84,15 +84,13 @@ public class GameManager implements Listener {
         ItemStack item = e.getItem();
         if (item == null || item.getType() != Material.FIREWORK_ROCKET) return;
 
-        // FIX: Allow placement on blocks, but blast in the air
         if (e.getAction() == Action.RIGHT_CLICK_BLOCK) {
-            return; // Minecraft handles placement naturally
+            return;
         }
 
         if (e.getAction() == Action.RIGHT_CLICK_AIR) {
             e.setCancelled(true);
 
-            // Spawn blast-style firework
             Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
             FireworkMeta fmeta = fw.getFireworkMeta();
             fmeta.addEffect(FireworkEffect.builder()
@@ -100,7 +98,7 @@ public class GameManager implements Listener {
                     .with(FireworkEffect.Type.BURST).trail(true).build());
             fmeta.setPower(0);
             fw.setFireworkMeta(fmeta);
-            fw.detonate(); // Immediate blast
+            fw.detonate();
 
             p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1.0f, 1.0f);
 
@@ -123,10 +121,7 @@ public class GameManager implements Listener {
         if (!inGame.contains(p.getUniqueId())) {
             inGame.add(p.getUniqueId());
             p.teleport(arena.getLobby());
-            p.getInventory().clear();
-            p.setGameMode(GameMode.ADVENTURE);
-            p.setHealth(20.0); // Reset Health
-            pReset(p);
+            fullPlayerReset(p);
         }
 
         int minPlayers = plugin.getConfig().getInt("min-players", 2);
@@ -196,7 +191,6 @@ public class GameManager implements Listener {
             p.getInventory().addItem(new ItemStack(Material.SPYGLASS, 1));
             p.getInventory().addItem(new ItemStack(Material.GOLDEN_CARROT, 64));
             p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bFlash Rocket", 64));
-            pReset(p);
             p.sendTitle("§a§lSEEKER", "§7Hide quickly!", 10, 60, 10);
         }
 
@@ -306,29 +300,58 @@ public class GameManager implements Listener {
         for (UUID id : inGame) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) {
-                p.getInventory().clear();
-                p.setGameMode(GameMode.ADVENTURE);
-                p.teleport(arena.getLobby());
-                p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-                pReset(p);
+                fullPlayerReset(p);
             }
         }
+
         disguiseManager.cleanupAll();
         inGame.clear(); hunters.clear(); seekers.clear(); spectators.clear();
     }
 
+    /**
+     * Completely cleans a player and restores them to a neutral state.
+     * Use this when game ends or a player leaves.
+     */
+    public void fullPlayerReset(Player p) {
+        p.getInventory().clear();
+        p.setGameMode(GameMode.ADVENTURE);
+        p.setHealth(20.0);
+        p.setFoodLevel(20);
+        p.setFireTicks(0);
+
+        // Clear all potion effects
+        for (PotionEffect effect : p.getActivePotionEffects()) {
+            p.removePotionEffect(effect.getType());
+        }
+
+        // Restore default scoreboard
+        p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+
+        // Remove disguise and force reveal logic
+        disguiseManager.removeDisguise(p);
+        pReset(p);
+
+        if (arena != null) {
+            p.teleport(arena.getLobby());
+        }
+    }
+
+    /**
+     * Fixes stuck invisibility by forcing the server to re-show the player.
+     */
     private void pReset(Player p) {
+        p.setInvisible(false);
         p.removePotionEffect(PotionEffectType.INVISIBILITY);
         p.removePotionEffect(PotionEffectType.BLINDNESS);
         p.removePotionEffect(PotionEffectType.SLOWNESS);
-        // Force visibility fix
+
+        // FORCE visibility update for all players
         for (Player online : Bukkit.getOnlinePlayers()) {
             online.showPlayer(plugin, p);
         }
     }
 
     private void updateScoreboard(Player p, String status, int time) {
-        // Dynamic Scoreboard API call
         statsManager.updateScoreboard(p, status, time, seekers.size(), (arena != null ? arena.getName() : "None"));
     }
 
@@ -348,12 +371,11 @@ public class GameManager implements Listener {
     public void leaveGame(Player p) {
         if (!isInGame(p)) return;
         UUID id = p.getUniqueId();
+
+        fullPlayerReset(p);
+
         inGame.remove(id); hunters.remove(id); seekers.remove(id); spectators.remove(id);
-        disguiseManager.removeDisguise(p);
-        p.getInventory().clear();
-        p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-        pReset(p);
-        if (arena != null) p.teleport(arena.getLobby());
+
         if (gameRunning && (hunters.isEmpty() || seekers.isEmpty())) endGame(seekers.isEmpty());
     }
 
