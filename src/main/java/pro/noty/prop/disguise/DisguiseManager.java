@@ -78,6 +78,7 @@ public class DisguiseManager {
     public void undisguise(Player player) {
         disguisedBlocks.remove(player.getUniqueId());
 
+
         ArmorStand stand = disguiseStands.remove(player.getUniqueId());
         if (stand != null && !stand.isDead()) stand.remove();
 
@@ -104,4 +105,15 @@ public class DisguiseManager {
         disguiseStands.clear();
         disguisedBlocks.clear();
     }
+    // BACKWARD COMPATIBILITY METHODS
+
+    public void removeDisguise(Player player) {
+        undisguise(player); // call your new method
+    }
+
+    public void cleanupAll() {
+        removeAll(); // call your new cleanup method
+    }
+
+
 }
