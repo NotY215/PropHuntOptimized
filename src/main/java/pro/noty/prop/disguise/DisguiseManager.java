@@ -1,80 +1,107 @@
 package pro.noty.prop.disguise;
 
+import com.comphenix.protocol.ProtocolLibrary;
+import com.comphenix.protocol.ProtocolManager;
+import com.comphenix.protocol.events.PacketContainer;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher;
 import org.bukkit.*;
-import org.bukkit.entity.BlockDisplay;
-import org.bukkit.entity.Display;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockDataMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.util.Transformation;
-import org.joml.*;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 public class DisguiseManager {
 
     private final JavaPlugin plugin;
-    private final Map<UUID, BlockDisplay> disguises = new HashMap<>();
+    private final ProtocolManager protocolManager;
+
+    private final Map<UUID, ArmorStand> disguiseStands = new HashMap<>();
+    private final Map<UUID, Material> disguisedBlocks = new HashMap<>();
 
     public DisguiseManager(JavaPlugin plugin) {
         this.plugin = plugin;
-        startFollowTask();
+        this.protocolManager = ProtocolLibrary.getProtocolManager();
     }
 
-    public void disguise(Player player, Material mat) {
-        if (!mat.isBlock()) return;
+    /* ================= DISGUISE PLAYER ================= */
 
-        removeDisguise(player);
+    public void disguise(Player player, Material blockMaterial) {
+        undisguise(player);
 
-        BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
-        display.setBlock(mat.createBlockData());
+        disguisedBlocks.put(player.getUniqueId(), blockMaterial);
 
-        // PERFECT CENTER FIX
-        display.setTransformation(new Transformation(
-                new Vector3f(-0.5f, 0f, -0.5f),
-                new Quaternionf(),
-                new Vector3f(1f,1f,1f),
-                new Quaternionf()
-        ));
+        // Hide player
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            other.hidePlayer(plugin, player);
+        }
 
-        display.setInterpolationDuration(1);
-        display.setBrightness(new Display.Brightness(15, 15));
+        // Spawn invisible armor stand
+        ArmorStand stand = player.getWorld().spawn(player.getLocation(), ArmorStand.class, as -> {
+            as.setInvisible(true);
+            as.setGravity(false);
+            as.setMarker(true);
+            as.setSmall(false);
+            as.setInvulnerable(true);
+            as.getEquipment().setHelmet(new ItemStack(blockMaterial));
+        });
 
-        disguises.put(player.getUniqueId(), display);
+        disguiseStands.put(player.getUniqueId(), stand);
 
-        player.setInvisible(true);
-        player.setCollidable(false);
+        // Keep stand synced with player
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!player.isOnline() || !disguiseStands.containsKey(player.getUniqueId())) {
+                    cancel();
+                    return;
+                }
+
+                ArmorStand s = disguiseStands.get(player.getUniqueId());
+                if (s == null || s.isDead()) {
+                    cancel();
+                    return;
+                }
+
+                Location loc = player.getLocation().clone().add(0, -1.4, 0);
+                s.teleport(loc);
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    public void removeDisguise(Player p) {
-        BlockDisplay d = disguises.remove(p.getUniqueId());
-        if (d != null) d.remove();
+    /* ================= UNDISGUISE ================= */
 
-        p.setInvisible(false);
-        p.setCollidable(true);
+    public void undisguise(Player player) {
+        disguisedBlocks.remove(player.getUniqueId());
 
-        for (Player online : Bukkit.getOnlinePlayers()) {
-            online.showPlayer(plugin, p);
+        ArmorStand stand = disguiseStands.remove(player.getUniqueId());
+        if (stand != null && !stand.isDead()) stand.remove();
+
+        // Show player again
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            other.showPlayer(plugin, player);
         }
     }
 
-    private void startFollowTask() {
-        new BukkitRunnable() {
-            public void run() {
-                disguises.forEach((uuid, display) -> {
-                    Player p = Bukkit.getPlayer(uuid);
-                    if (p == null || !p.isOnline()) return;
-                    display.teleport(p.getLocation());
-                });
-            }
-        }.runTaskTimer(plugin, 0, 1);
+    public boolean isDisguised(Player player) {
+        return disguiseStands.containsKey(player.getUniqueId());
     }
 
-    public void cleanupAll() {
-        disguises.keySet().forEach(uuid -> {
-            Player p = Bukkit.getPlayer(uuid);
-            if (p != null) removeDisguise(p);
-        });
-        disguises.clear();
+    public Material getDisguisedBlock(Player player) {
+        return disguisedBlocks.get(player.getUniqueId());
+    }
+
+    /* ================= CLEANUP ================= */
+
+    public void removeAll() {
+        for (ArmorStand stand : disguiseStands.values()) {
+            if (stand != null && !stand.isDead()) stand.remove();
+        }
+        disguiseStands.clear();
+        disguisedBlocks.clear();
     }
 }
