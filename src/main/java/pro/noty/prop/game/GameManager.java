@@ -1,40 +1,40 @@
 package pro.noty.prop.game;
 
 import org.bukkit.*;
-import org.bukkit.entity.Firework;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
+import org.bukkit.entity.*;
+import org.bukkit.event.*;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.FireworkMeta;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.*;
+import org.bukkit.inventory.meta.*;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.*;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import pro.noty.prop.PropHuntOptimized;
 import pro.noty.prop.disguise.DisguiseManager;
 import pro.noty.prop.arena.Arena;
+import pro.noty.prop.game.HunterVoteManager;
 
 import java.util.*;
 
-/**
- * GameManager handles the core loop, combat, kits, and cleanup for Prop Hunt.
- */
 public class GameManager implements Listener {
 
-    private final JavaPlugin plugin;
+    private final PropHuntOptimized plugin;
     private final DisguiseManager disguiseManager;
     private final StatsManager statsManager;
+
+    private final HunterVoteManager voteManager;
 
     private final Set<UUID> hunters = new HashSet<>();
     private final Set<UUID> seekers = new HashSet<>();
     private final Set<UUID> spectators = new HashSet<>();
     private final Set<UUID> inGame = new HashSet<>();
-    private Arena arena;
 
+    private final Map<UUID, Long> rocketCooldown = new HashMap<>();
+
+    private Arena arena;
     private boolean gameRunning = false;
     private boolean lobbyCountdownActive = false;
     private boolean hidingPhase = false;
@@ -47,77 +47,97 @@ public class GameManager implements Listener {
     private Player hunterPlayer;
     private int elapsedSeconds = 0;
 
-    public GameManager(JavaPlugin plugin, DisguiseManager disguiseManager) {
+    public GameManager(PropHuntOptimized plugin, DisguiseManager disguiseManager) {
         this.plugin = plugin;
         this.disguiseManager = disguiseManager;
         this.statsManager = new StatsManager();
+        this.voteManager = new HunterVoteManager(plugin);
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        Bukkit.getPluginManager().registerEvents(voteManager, plugin); // ✅ ADD THIS
     }
 
+
+
     /* ========================================================= */
-    /* =================== COMBAT & HEALTH FIX ================= */
+    /* ===================== COMBAT SYSTEM ====================== */
     /* ========================================================= */
 
     @EventHandler
     public void onCombat(EntityDamageByEntityEvent e) {
-        if (!(e.getEntity() instanceof Player victim) || !(e.getDamager() instanceof Player attacker)) return;
+        if (!(e.getEntity() instanceof Player victim)) return;
+        if (!(e.getDamager() instanceof Player attacker)) return;
         if (!isInGame(victim) || !isInGame(attacker)) return;
 
-        // Ensure Seeker takes normal damage until death instead of dying in one hit
-        if (isSeeker(victim) && isHunter(attacker)) {
-            if (victim.getHealth() - e.getFinalDamage() <= 0) {
-                e.setCancelled(true);
-                handleDeath(victim);
-            }
+        // Prevent friendly fire
+        if (isSeeker(victim) && isSeeker(attacker)) {
+            e.setCancelled(true);
+            return;
         }
+
+        // Hunter vs Hunter shouldn't happen but block anyway
+        if (isHunter(victim) && isHunter(attacker)) {
+            e.setCancelled(true);
+            return;
+        }
+
+        // REAL DAMAGE — but control deaths manually
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (victim.getHealth() <= 0) handleDeath(victim);
+        });
     }
 
     /* ========================================================= */
-    /* =================== UPDATED ROCKET LOGIC ================= */
+    /* ===================== FIREWORK ABILITY =================== */
     /* ========================================================= */
 
     @EventHandler
     public void onFireworkUse(PlayerInteractEvent e) {
         Player p = e.getPlayer();
-        if (!isInGame(p) || !isSeeker(p)) return;
+        if (!isInGame(p)) return;
 
         ItemStack item = e.getItem();
         if (item == null || item.getType() != Material.FIREWORK_ROCKET) return;
+        if (e.getAction() == Action.RIGHT_CLICK_BLOCK) return;
 
-        if (e.getAction() == Action.RIGHT_CLICK_BLOCK) {
+        long now = System.currentTimeMillis();
+        if (rocketCooldown.containsKey(p.getUniqueId())
+                && now - rocketCooldown.get(p.getUniqueId()) < 10000) {
+            p.sendMessage("§cRocket recharging...");
             return;
         }
 
-        if (e.getAction() == Action.RIGHT_CLICK_AIR) {
-            e.setCancelled(true);
+        rocketCooldown.put(p.getUniqueId(), now);
+        e.setCancelled(true);
 
-            Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
-            FireworkMeta fmeta = fw.getFireworkMeta();
-            fmeta.addEffect(FireworkEffect.builder()
-                    .withColor(Color.AQUA).withFade(Color.WHITE)
-                    .with(FireworkEffect.Type.BURST).trail(true).build());
-            fmeta.setPower(0);
-            fw.setFireworkMeta(fmeta);
-            fw.detonate();
+        Firework fw = p.getWorld().spawn(p.getLocation().add(0, 1, 0), Firework.class);
+        FireworkMeta meta = fw.getFireworkMeta();
+        meta.addEffect(FireworkEffect.builder()
+                .with(FireworkEffect.Type.BURST)
+                .withColor(Color.AQUA)
+                .withFade(Color.WHITE)
+                .trail(true)
+                .build());
+        meta.setPower(0);
+        fw.setFireworkMeta(meta);
 
-            p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1.0f, 1.0f);
+        fw.detonate();
+        p.getWorld().playSound(p.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1, 1);
 
-            if (item.getAmount() > 1) item.setAmount(item.getAmount() - 1);
-            else p.getInventory().setItemInMainHand(null);
-        }
+        item.setAmount(item.getAmount() - 1);
     }
 
     /* ========================================================= */
-    /* =================== JOIN & LOBBY LOGIC =================== */
+    /* ===================== JOIN & LOBBY ======================= */
     /* ========================================================= */
 
     public void joinArena(Player p, Arena arena) {
         if (gameRunning) {
-            p.sendMessage("§cThis game is already in progress!");
+            p.sendMessage("§cGame already running!");
             return;
         }
 
         this.arena = arena;
+
         if (!inGame.contains(p.getUniqueId())) {
             inGame.add(p.getUniqueId());
             p.teleport(arena.getLobby());
@@ -125,43 +145,65 @@ public class GameManager implements Listener {
         }
 
         int minPlayers = plugin.getConfig().getInt("min-players", 2);
-        broadcast("§e" + p.getName() + " §7joined! (§e" + inGame.size() + "§7/§e" + plugin.getConfig().getInt("max-players") + ")");
+        broadcast("§e" + p.getName() + " joined! §7(" + inGame.size() + "/" +
+                plugin.getConfig().getInt("max-players") + ")");
 
         if (inGame.size() >= minPlayers && !lobbyCountdownActive) {
             startLobbyCountdown();
         }
+        ItemStack voteItem = createNamedItem(Material.DIAMOND, "§bVote Hunter", 1);
+        p.getInventory().setItem(4, voteItem);
     }
 
     private void startLobbyCountdown() {
         lobbyCountdownActive = true;
+
         new BukkitRunnable() {
             int count = lobbyTime;
-            @Override
+
             public void run() {
                 if (inGame.size() < plugin.getConfig().getInt("min-players", 2)) {
-                    broadcast("§cNot enough players! Countdown stopped.");
+                    broadcast("§cNot enough players!");
                     lobbyCountdownActive = false;
-                    this.cancel();
+                    cancel();
                     return;
                 }
+
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
                     if (p != null) updateScoreboard(p, "Lobby", count);
                 }
+
                 if (count <= 0) {
                     startGame();
                     lobbyCountdownActive = false;
-                    this.cancel();
+                    cancel();
                     return;
                 }
-                if (count % 10 == 0 || count <= 5) broadcast("§6Game starting in §e" + count + "§6 seconds!");
+
+                if (count % 10 == 0 || count <= 5)
+                    broadcast("§6Starting in §e" + count + "§6 seconds");
+
                 count--;
             }
         }.runTaskTimer(plugin, 0, 20);
     }
+    @EventHandler
+    public void onVoteItemUse(PlayerInteractEvent e) {
+        Player p = e.getPlayer();
+        if (!isInGame(p) || gameRunning) return;
+
+        ItemStack item = e.getItem();
+        if (item == null || item.getType() != Material.DIAMOND) return;
+        if (!item.hasItemMeta() || !item.getItemMeta().getDisplayName().contains("Vote Hunter")) return;
+
+        e.setCancelled(true);
+        voteManager.openVoteGUI(p, inGame);
+    }
+
 
     /* ========================================================= */
-    /* ===================== GAME LIFECYCLE ===================== */
+    /* ======================= GAME START ======================= */
     /* ========================================================= */
 
     private void startGame() {
@@ -172,52 +214,67 @@ public class GameManager implements Listener {
         List<UUID> players = new ArrayList<>(inGame);
         Collections.shuffle(players);
 
-        UUID hId = players.remove(0);
-        hunterPlayer = Bukkit.getPlayer(hId);
-        hunters.add(hId);
-        for (UUID sId : players) seekers.add(sId);
+        UUID hunterId = voteManager.getWinningHunter(inGame);
+        hunterPlayer = Bukkit.getPlayer(hunterId);
+        hunters.add(hunterId);
+
+        List<UUID> others = new ArrayList<>(inGame);
+        others.remove(hunterId);
+        seekers.addAll(others);
+
+        voteManager.clearVotes();
+
 
         assignKits();
         startHidingPhase();
     }
 
     private void assignKits() {
+        for (UUID id : inGame) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) p.getInventory().remove(Material.DIAMOND);
+        }
+
         for (UUID id : seekers) {
             Player p = Bukkit.getPlayer(id);
             if (p == null) continue;
+
             p.teleport(arena.getSpawn());
             p.getInventory().clear();
-            p.setHealth(20.0);
-            p.getInventory().addItem(new ItemStack(Material.SPYGLASS, 1));
-            p.getInventory().addItem(new ItemStack(Material.GOLDEN_CARROT, 64));
-            p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bFlash Rocket", 64));
-            p.sendTitle("§a§lSEEKER", "§7Hide quickly!", 10, 60, 10);
+            p.setHealth(20);
+
+            p.getInventory().addItem(new ItemStack(Material.SPYGLASS));
+            p.getInventory().addItem(createNamedItem(Material.FIREWORK_ROCKET, "§bFlash Rocket", 3));
+            p.sendTitle("§aSEEKER", "Hide as a block!", 10, 60, 10);
         }
 
         if (hunterPlayer != null) {
             hunterPlayer.teleport(arena.getLobby());
             hunterPlayer.getInventory().clear();
             hunterPlayer.getInventory().addItem(new ItemStack(Material.WOODEN_SWORD));
+
             hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, hideTime * 20, 1));
             hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, hideTime * 20, 10));
-            hunterPlayer.sendTitle("§c§lHUNTER", "§7Wait for seekers to hide...", 10, 60, 10);
+            hunterPlayer.sendTitle("§cHUNTER", "Wait...", 10, 60, 10);
         }
     }
 
     private void startHidingPhase() {
         new BukkitRunnable() {
             int count = hideTime;
-            @Override
+
             public void run() {
-                if (!gameRunning) { this.cancel(); return; }
+                if (!gameRunning) { cancel(); return; }
+
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
                     if (p != null) updateScoreboard(p, "Hiding", count);
                 }
+
                 if (count <= 0) {
                     releaseHunter();
                     startMainTimer();
-                    this.cancel();
+                    cancel();
                     return;
                 }
                 count--;
@@ -231,23 +288,36 @@ public class GameManager implements Listener {
             hunterPlayer.removePotionEffect(PotionEffectType.BLINDNESS);
             hunterPlayer.removePotionEffect(PotionEffectType.SLOWNESS);
             hunterPlayer.teleport(arena.getSpawn());
-            hunterPlayer.sendTitle("§c§lGO!", "Find the props!", 10, 40, 10);
+            hunterPlayer.sendTitle("§cGO!", "Find the props!", 10, 40, 10);
         }
     }
+
+    /* ========================================================= */
+    /* ======================= MAIN TIMER ======================= */
+    /* ========================================================= */
 
     private void startMainTimer() {
         timerTask = new BukkitRunnable() {
             int timeLeft = gameTime;
-            @Override
+
             public void run() {
-                if (!gameRunning) { this.cancel(); return; }
+                if (!gameRunning) { cancel(); return; }
+
                 elapsedSeconds++;
+
                 for (UUID id : inGame) {
                     Player p = Bukkit.getPlayer(id);
                     if (p != null) updateScoreboard(p, "Finding", timeLeft);
                 }
+
                 handleHunterUpgrades(timeLeft);
-                if (timeLeft <= 0) { endGame(false); this.cancel(); }
+
+                if (timeLeft <= 0) {
+                    endGame(false);
+                    cancel();
+                    return;
+                }
+
                 timeLeft--;
             }
         }.runTaskTimer(plugin, 0, 20);
@@ -255,8 +325,11 @@ public class GameManager implements Listener {
 
     private void handleHunterUpgrades(int timeLeft) {
         if (hunterPlayer == null) return;
-        if (timeLeft == 400) hunterPlayer.getInventory().setItem(0, new ItemStack(Material.STONE_SWORD));
-        else if (timeLeft == 200) hunterPlayer.getInventory().setItem(0, new ItemStack(Material.IRON_SWORD));
+
+        if (timeLeft == 400)
+            hunterPlayer.getInventory().setItem(0, new ItemStack(Material.STONE_SWORD));
+        else if (timeLeft == 200)
+            hunterPlayer.getInventory().setItem(0, new ItemStack(Material.IRON_SWORD));
         else if (timeLeft == 60) {
             hunterPlayer.getInventory().setItem(0, new ItemStack(Material.NETHERITE_SWORD));
             hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 1200, 1));
@@ -264,143 +337,140 @@ public class GameManager implements Listener {
     }
 
     /* ========================================================= */
-    /* ===================== END GAME LOGIC ===================== */
+    /* ======================= DEATH / END ====================== */
     /* ========================================================= */
+
+    public void handleDeath(Player p) {
+        if (!isInGame(p)) return;
+
+        if (isHunter(p)) {
+            endGame(false);
+        } else if (isSeeker(p)) {
+            eliminateSeeker(p);
+        }
+    }
 
     public void eliminateSeeker(Player seeker) {
         seekers.remove(seeker.getUniqueId());
         spectators.add(seeker.getUniqueId());
+
         seeker.setGameMode(GameMode.SPECTATOR);
         seeker.getInventory().clear();
         disguiseManager.removeDisguise(seeker);
         pReset(seeker);
 
-        if (hunterPlayer != null) statsManager.addKill(hunterPlayer.getUniqueId());
-        if (seekers.isEmpty()) endGame(true);
+        if (hunterPlayer != null)
+            statsManager.addKill(hunterPlayer.getUniqueId());
+
+        if (seekers.isEmpty())
+            endGame(true);
     }
 
     private void endGame(boolean hunterWon) {
         gameRunning = false;
         if (timerTask != null) timerTask.cancel();
 
-        List<Player> winners = new ArrayList<>();
-        List<Player> losers = new ArrayList<>();
-
-        if (hunterWon) {
-            if (hunterPlayer != null) { winners.add(hunterPlayer); statsManager.addWin(hunterPlayer.getUniqueId()); }
-            for (UUID id : seekers) { Player p = Bukkit.getPlayer(id); if (p != null) losers.add(p); }
-        } else {
-            for (UUID id : seekers) { Player p = Bukkit.getPlayer(id); if (p != null) { winners.add(p); statsManager.addWin(id); } }
-            if (hunterPlayer != null) losers.add(hunterPlayer);
-        }
-
-        executeEndCommands(winners, losers);
-        broadcast(hunterWon ? "§c§lHUNTER WINS!" : "§a§lSEEKERS SURVIVED!");
+        broadcast(hunterWon ? "§cHUNTER WINS!" : "§aSEEKERS WIN!");
 
         for (UUID id : inGame) {
             Player p = Bukkit.getPlayer(id);
-            if (p != null) {
-                fullPlayerReset(p);
-            }
+            if (p != null) fullPlayerReset(p);
         }
 
         disguiseManager.cleanupAll();
-        inGame.clear(); hunters.clear(); seekers.clear(); spectators.clear();
+        inGame.clear();
+        hunters.clear();
+        seekers.clear();
+        spectators.clear();
     }
 
-    /**
-     * Completely cleans a player and restores them to a neutral state.
-     * Use this when game ends or a player leaves.
-     */
+    /* ========================================================= */
+    /* ======================= UTILITIES ======================== */
+    /* ========================================================= */
+
     public void fullPlayerReset(Player p) {
         p.getInventory().clear();
         p.setGameMode(GameMode.ADVENTURE);
-        p.setHealth(20.0);
+        p.setHealth(20);
         p.setFoodLevel(20);
         p.setFireTicks(0);
 
-        // Clear all potion effects
-        for (PotionEffect effect : p.getActivePotionEffects()) {
+        for (PotionEffect effect : p.getActivePotionEffects())
             p.removePotionEffect(effect.getType());
-        }
 
-        // Restore default scoreboard
         p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-
-        // Remove disguise and force reveal logic
         disguiseManager.removeDisguise(p);
         pReset(p);
 
-        if (arena != null) {
-            p.teleport(arena.getLobby());
-        }
+        if (arena != null) p.teleport(arena.getLobby());
     }
 
-    /**
-     * Fixes stuck invisibility by forcing the server to re-show the player.
-     */
     private void pReset(Player p) {
         p.setInvisible(false);
         p.removePotionEffect(PotionEffectType.INVISIBILITY);
-        p.removePotionEffect(PotionEffectType.BLINDNESS);
-        p.removePotionEffect(PotionEffectType.SLOWNESS);
 
-        // FORCE visibility update for all players
-        for (Player online : Bukkit.getOnlinePlayers()) {
+        for (Player online : Bukkit.getOnlinePlayers())
             online.showPlayer(plugin, p);
-        }
     }
 
     private void updateScoreboard(Player p, String status, int time) {
-        statsManager.updateScoreboard(p, status, time, seekers.size(), (arena != null ? arena.getName() : "None"));
-    }
-
-    private void executeEndCommands(List<Player> winners, List<Player> losers) {
-        List<String> commands = plugin.getConfig().getStringList("end-commands");
-        for (String cmd : commands) {
-            if (cmd.contains("%winner%")) for (Player w : winners) Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd.replace("%winner%", w.getName()));
-            else if (cmd.contains("%looser%")) for (Player l : losers) Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd.replace("%looser%", l.getName()));
-            else Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
-        }
-    }
-
-    /* ========================================================= */
-    /* ======================== API/COMPAT ===================== */
-    /* ========================================================= */
-
-    public void leaveGame(Player p) {
-        if (!isInGame(p)) return;
-        UUID id = p.getUniqueId();
-
-        fullPlayerReset(p);
-
-        inGame.remove(id); hunters.remove(id); seekers.remove(id); spectators.remove(id);
-
-        if (gameRunning && (hunters.isEmpty() || seekers.isEmpty())) endGame(seekers.isEmpty());
-    }
-
-    public void handleDeath(Player p) {
-        if (!isInGame(p)) return;
-        if (isHunter(p)) endGame(false);
-        else if (isSeeker(p)) eliminateSeeker(p);
-    }
-
-    public void showLeaderboard(Player p) {
-        p.sendMessage("§6§l=== PROP HUNT LEADERBOARD ===");
-        p.sendMessage("§eYour Wins: §f" + statsManager.getWins(p.getUniqueId()));
-        p.sendMessage("§eYour Kills: §f" + statsManager.getKills(p.getUniqueId()));
+        statsManager.updateScoreboard(p, status, time, seekers.size(),
+                arena != null ? arena.getName() : "None");
     }
 
     private ItemStack createNamedItem(Material mat, String name, int amt) {
         ItemStack item = new ItemStack(mat, amt);
         ItemMeta meta = item.getItemMeta();
-        if (meta != null) { meta.setDisplayName(name); item.setItemMeta(meta); }
+        if (meta != null) {
+            meta.setDisplayName(name);
+            item.setItemMeta(meta);
+        }
         return item;
+    }
+    public void leaveGame(Player p) {
+        if (!isInGame(p)) return;
+
+        UUID id = p.getUniqueId();
+
+        fullPlayerReset(p);
+
+        inGame.remove(id);
+        hunters.remove(id);
+        seekers.remove(id);
+        spectators.remove(id);
+
+        broadcast("§c" + p.getName() + " left the game.");
+
+        // End game if one team left
+        if (gameRunning) {
+            if (hunters.isEmpty()) {
+                endGame(false);
+            } else if (seekers.isEmpty()) {
+                endGame(true);
+            }
+        }
     }
 
     public boolean isInGame(Player p) { return inGame.contains(p.getUniqueId()); }
     public boolean isHunter(Player p) { return hunters.contains(p.getUniqueId()); }
     public boolean isSeeker(Player p) { return seekers.contains(p.getUniqueId()); }
     public boolean isGameRunning() { return gameRunning; }
-    private void broadcast(String msg) { for (UUID id : inGame) { Player p = Bukkit.getPlayer(id); if (p != null) p.sendMessage("§6[PropHunt] " + msg); } }
+
+    private void broadcast(String msg) {
+        for (UUID id : inGame) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) p.sendMessage("§6[PropHunt] " + msg);
+        }
+    }
+    public Arena getArena() {
+        return arena;
+    }
+
+    public void forceStop() {
+        endGame(false);
+    }
+    public StatsManager getStatsManager() {
+        return statsManager;
+    }
+
 }

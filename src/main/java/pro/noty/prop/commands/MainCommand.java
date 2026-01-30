@@ -1,13 +1,12 @@
-// ==========================
-// MainCommand.java
-// ==========================
 package pro.noty.prop.commands;
 
+import org.bukkit.Bukkit;
 import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import pro.noty.prop.PropHuntOptimized;
 import pro.noty.prop.arena.Arena;
 import pro.noty.prop.game.GameManager;
+import pro.noty.prop.game.StatsManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,71 +22,144 @@ public class MainCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player p)) return true;
-        if (args.length == 0) { showHelp(p); return true; }
 
-        if (args[0].equalsIgnoreCase("help")) { showHelp(p); return true; }
-
-        GameManager gm = plugin.getGameManager();
-
-        if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            if (!p.hasPermission("prophunt.admin")) { p.sendMessage("§cNo permission."); return true; }
-            plugin.reloadPlugin();
-            p.sendMessage("§aPropHunt config and arenas reloaded!");
+        if (args.length == 0) {
+            showHelp(p);
             return true;
         }
 
-        Arena arena = null;
-        if (args.length >= 2) {
-            arena = plugin.getArenaManager().getArena(args[0]);
-            if (arena == null && !args[1].equalsIgnoreCase("create")) {
-                p.sendMessage("§cArena not found");
+        if (args[0].equalsIgnoreCase("reload")) {
+            if (!p.hasPermission("prophunt.admin")) {
+                p.sendMessage("§cNo permission.");
                 return true;
             }
+            plugin.reloadPlugin();
+            p.sendMessage("§aPropHunt reloaded!");
+            return true;
         }
 
-        if (args.length >= 2) {
-            switch (args[1].toLowerCase()) {
-                case "create": plugin.getArenaManager().createArena(args[0]); p.sendMessage("§aArena created"); return true;
-                case "pos1": arena.setPos1(p.getLocation()); plugin.getArenaManager().saveArena(arena); p.sendMessage("§aPos1 set"); return true;
-                case "pos2": arena.setPos2(p.getLocation()); plugin.getArenaManager().saveArena(arena); p.sendMessage("§aPos2 set"); return true;
-                case "setlobby": arena.setLobby(p.getLocation()); plugin.getArenaManager().saveArena(arena); p.sendMessage("§aLobby set"); return true;
-                case "setspawn": arena.setSpawn(p.getLocation()); plugin.getArenaManager().saveArena(arena); p.sendMessage("§aSpawn set"); return true;
-                case "join": gm.joinArena(p, arena); return true;
-                case "leave": gm.leaveGame(p); return true;
-            }
+        if (args.length < 2) {
+            showHelp(p);
+            return true;
         }
 
-        showHelp(p);
+        String arenaName = args[0];
+        Arena arena = plugin.getArenaManager().getArena(arenaName);
+
+        if (arena == null && !args[1].equalsIgnoreCase("create")) {
+            p.sendMessage("§cArena not found.");
+            return true;
+        }
+
+        GameManager gm = plugin.getGameManager();
+
+        switch (args[1].toLowerCase()) {
+            case "create":
+                plugin.getArenaManager().createArena(arenaName);
+                p.sendMessage("§aArena created!");
+                break;
+
+            case "pos1":
+                arena.setPos1(p.getLocation());
+                plugin.getArenaManager().saveArena(arena);
+                p.sendMessage("§aPos1 set.");
+                break;
+
+            case "pos2":
+                arena.setPos2(p.getLocation());
+                plugin.getArenaManager().saveArena(arena);
+                p.sendMessage("§aPos2 set.");
+                break;
+
+            case "setlobby":
+                arena.setLobby(p.getLocation());
+                plugin.getArenaManager().saveArena(arena);
+                p.sendMessage("§aLobby set.");
+                break;
+
+            case "setspawn":
+                arena.setSpawn(p.getLocation());
+                plugin.getArenaManager().saveArena(arena);
+                p.sendMessage("§aSpawn set.");
+                break;
+
+            case "join":
+                gm.joinArena(p, arena);
+                break;
+
+            case "leave":
+                gm.leaveGame(p);
+                p.sendMessage("§eYou left the game.");
+                break;
+
+            case "leaderboard":
+                showLeaderboard(p);
+                break;
+
+            default:
+                showHelp(p);
+                break;
+        }
+
         return true;
+    }
+
+    /* ========================================================= */
+    /* ===================== LEADERBOARD ======================== */
+    /* ========================================================= */
+
+    private void showLeaderboard(Player p) {
+        StatsManager stats = plugin.getGameManager().getStatsManager();
+
+        p.sendMessage("§6§l=== PROP HUNT LEADERBOARD ===");
+
+        int place = 1;
+        for (var entry : stats.getTopWins(10)) {
+            String name = Bukkit.getOfflinePlayer(entry.getKey()).getName();
+            p.sendMessage("§e#" + place++ + " §f" + name + " §7- §a" + entry.getValue() + " Wins");
+        }
+
+        p.sendMessage("§7--- Top Killers ---");
+
+        place = 1;
+        for (var entry : stats.getTopKills(10)) {
+            String name = Bukkit.getOfflinePlayer(entry.getKey()).getName();
+            p.sendMessage("§c#" + place++ + " §f" + name + " §7- §e" + entry.getValue() + " Kills");
+        }
     }
 
     private void showHelp(Player p) {
         p.sendMessage("§6Prop Hunt Commands:");
-        p.sendMessage("§e/mb <arena> create §7- Create arena");
-        p.sendMessage("§e/mb <arena> pos1 §7- Set first position");
-        p.sendMessage("§e/mb <arena> pos2 §7- Set second position");
-        p.sendMessage("§e/mb <arena> setlobby §7- Set lobby");
-        p.sendMessage("§e/mb <arena> setspawn §7- Set seeker spawn");
-        p.sendMessage("§e/mb <arena> join §7- Join game");
-        p.sendMessage("§e/mb <arena> leave §7- Leave game");
-        p.sendMessage("§e/mb reload §7- Reload plugin files");
+        p.sendMessage("§e/mb <arena> create");
+        p.sendMessage("§e/mb <arena> pos1");
+        p.sendMessage("§e/mb <arena> pos2");
+        p.sendMessage("§e/mb <arena> setlobby");
+        p.sendMessage("§e/mb <arena> setspawn");
+        p.sendMessage("§e/mb <arena> join");
+        p.sendMessage("§e/mb <arena> leave");
+        p.sendMessage("§e/mb <arena> leaderboard");
+        p.sendMessage("§e/mb reload");
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        List<String> completions = new ArrayList<>();
+        List<String> list = new ArrayList<>();
+
         if (args.length == 1) {
-            completions.add("reload");
-            completions.addAll(plugin.getArenaManager().getArenaMap().keySet());
-        } else if (args.length == 2) {
-            completions.add("join");
-            completions.add("leave");
-            completions.add("pos1");
-            completions.add("pos2");
-            completions.add("setlobby");
-            completions.add("setspawn");
-            completions.add("create");
+            list.add("reload");
+            list.addAll(plugin.getArenaManager().getArenaMap().keySet());
         }
-        return completions;
+        else if (args.length == 2) {
+            list.add("join");
+            list.add("leave");
+            list.add("leaderboard");
+            list.add("pos1");
+            list.add("pos2");
+            list.add("setlobby");
+            list.add("setspawn");
+            list.add("create");
+        }
+
+        return list;
     }
 }

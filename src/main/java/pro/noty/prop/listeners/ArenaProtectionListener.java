@@ -1,6 +1,3 @@
-// ==========================
-// ArenaProtectionListener.java
-// ==========================
 package pro.noty.prop.listeners;
 
 import org.bukkit.GameMode;
@@ -15,6 +12,7 @@ import org.bukkit.event.player.PlayerPickupItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import pro.noty.prop.game.GameManager;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 public class ArenaProtectionListener implements Listener {
 
@@ -36,6 +34,16 @@ public class ArenaProtectionListener implements Listener {
     public void onBlockPlace(BlockPlaceEvent e) {
         Player p = e.getPlayer();
         if (gameManager.isInGame(p)) {
+            ItemStack itemInHand = e.getItemInHand();
+
+            // Allow placing the rocket item, but only if it's the specific material.
+            // I'm assuming your rocket item is a FIREWORK_ROCKET.
+            if (itemInHand != null && itemInHand.getType() == Material.FIREWORK_ROCKET) {
+                // Do NOT cancel the event, allowing the rocket to be used/placed.
+                return;
+            }
+
+            // For any other material in the game, cancel the place event.
             e.setCancelled(true);
         }
     }
@@ -61,8 +69,23 @@ public class ArenaProtectionListener implements Listener {
 
     @EventHandler
     public void onInteract(PlayerInteractEvent e) {
-        if (!gameManager.isInGame(e.getPlayer())) return;
-        if (e.getItem() != null && e.getItem().getType() == Material.SPYGLASS) return; // Allow spyglass
+        Player p = e.getPlayer();
+        if (!gameManager.isInGame(p)) return;
+
+        Material m = e.getClickedBlock() != null ? e.getClickedBlock().getType() : null;
+
+        if (m != null && (
+                m.name().contains("DOOR") ||
+                        m.name().contains("TRAPDOOR") ||
+                        m.name().contains("BUTTON") ||
+                        m.name().contains("LEVER") ||
+                        m.name().contains("GATE"))) {
+            return; // allow openable blocks
+        }
+
+        if (e.getItem() != null && e.getItem().getType() == Material.SPYGLASS) return;
+
         e.setCancelled(true);
     }
+
 }

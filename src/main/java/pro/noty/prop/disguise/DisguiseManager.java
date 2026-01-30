@@ -7,8 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Transformation;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
+import org.joml.*;
 
 import java.util.*;
 
@@ -16,82 +15,66 @@ public class DisguiseManager {
 
     private final JavaPlugin plugin;
     private final Map<UUID, BlockDisplay> disguises = new HashMap<>();
-    private final Map<UUID, Long> morphCooldown = new HashMap<>();
 
     public DisguiseManager(JavaPlugin plugin) {
         this.plugin = plugin;
         startFollowTask();
     }
 
-    public void disguise(Player player, Material material) {
-        if (!material.isBlock()) return;
-
-        long now = System.currentTimeMillis();
-        if (morphCooldown.getOrDefault(player.getUniqueId(), 0L) > now - 1500) {
-            player.sendMessage("§cWait before morphing!");
-            return;
-        }
-        morphCooldown.put(player.getUniqueId(), now);
+    public void disguise(Player player, Material mat) {
+        if (!mat.isBlock()) return;
 
         removeDisguise(player);
 
         BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
-        display.setBlock(material.createBlockData());
+        display.setBlock(mat.createBlockData());
 
-        // Centered transform for precise block alignment
-        Transformation transform = new Transformation(
-                new Vector3f(-0.5f, 0.0f, -0.5f),
+        // PERFECT CENTER FIX
+        display.setTransformation(new Transformation(
+                new Vector3f(-0.5f, 0f, -0.5f),
                 new Quaternionf(),
-                new Vector3f(1f, 1f, 1f),
+                new Vector3f(1f,1f,1f),
                 new Quaternionf()
-        );
-        display.setTransformation(transform);
-        display.setInterpolationDuration(2);
+        ));
+
+        display.setInterpolationDuration(1);
         display.setBrightness(new Display.Brightness(15, 15));
 
         disguises.put(player.getUniqueId(), display);
-        player.setInvisible(true); // Hide player model
+
+        player.setInvisible(true);
+        player.setCollidable(false);
     }
 
-    public void removeDisguise(Player player) {
-        BlockDisplay display = disguises.remove(player.getUniqueId());
-        if (display != null) display.remove();
+    public void removeDisguise(Player p) {
+        BlockDisplay d = disguises.remove(p.getUniqueId());
+        if (d != null) d.remove();
 
-        player.setInvisible(false);
+        p.setInvisible(false);
+        p.setCollidable(true);
 
-        // FIX: Force visibility update for all players to prevent "stuck" invisibility
         for (Player online : Bukkit.getOnlinePlayers()) {
-            online.showPlayer(plugin, player);
+            online.showPlayer(plugin, p);
         }
     }
 
     private void startFollowTask() {
         new BukkitRunnable() {
-            @Override
             public void run() {
-                Iterator<Map.Entry<UUID, BlockDisplay>> it = disguises.entrySet().iterator();
-                while (it.hasNext()) {
-                    Map.Entry<UUID, BlockDisplay> entry = it.next();
-                    Player player = Bukkit.getPlayer(entry.getKey());
-                    BlockDisplay display = entry.getValue();
-
-                    if (player == null || !player.isOnline() || display.isDead()) {
-                        if (display != null) display.remove();
-                        it.remove();
-                        continue;
-                    }
-                    display.teleport(player.getLocation());
-                }
+                disguises.forEach((uuid, display) -> {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p == null || !p.isOnline()) return;
+                    display.teleport(p.getLocation());
+                });
             }
         }.runTaskTimer(plugin, 0, 1);
     }
 
     public void cleanupAll() {
-        // Ensure all players are revealed on cleanup
-        for (UUID uuid : disguises.keySet()) {
+        disguises.keySet().forEach(uuid -> {
             Player p = Bukkit.getPlayer(uuid);
             if (p != null) removeDisguise(p);
-        }
+        });
         disguises.clear();
     }
 }
