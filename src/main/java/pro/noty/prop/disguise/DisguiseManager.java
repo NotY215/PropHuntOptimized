@@ -1,119 +1,126 @@
 package pro.noty.prop.disguise;
 
-import com.comphenix.protocol.ProtocolLibrary;
-import com.comphenix.protocol.ProtocolManager;
-import com.comphenix.protocol.events.PacketContainer;
-import com.comphenix.protocol.wrappers.WrappedDataWatcher;
 import org.bukkit.*;
-import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.BlockDisplay;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.BlockDataMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Transformation;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 public class DisguiseManager {
 
     private final JavaPlugin plugin;
-    private final ProtocolManager protocolManager;
 
-    private final Map<UUID, ArmorStand> disguiseStands = new HashMap<>();
-    private final Map<UUID, Material> disguisedBlocks = new HashMap<>();
+    // NEW SYSTEM
+    private final Map<UUID, BlockDisplay> disguises = new HashMap<>();
+    private final Map<UUID, Long> morphCooldown = new HashMap<>();
 
     public DisguiseManager(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.protocolManager = ProtocolLibrary.getProtocolManager();
+        startFollowTask();
     }
 
-    /* ================= DISGUISE PLAYER ================= */
+    /* ========================================================= */
+    /* ===================== NEW MORPH SYSTEM =================== */
+    /* ========================================================= */
 
-    public void disguise(Player player, Material blockMaterial) {
-        undisguise(player);
+    public void disguise(Player player, Material material) {
+        if (!material.isBlock()) return;
 
-        disguisedBlocks.put(player.getUniqueId(), blockMaterial);
-
-        // Hide player
-        for (Player other : Bukkit.getOnlinePlayers()) {
-            other.hidePlayer(plugin, player);
+        long now = System.currentTimeMillis();
+        if (morphCooldown.getOrDefault(player.getUniqueId(), 0L) > now - 1500) {
+            player.sendMessage("§cWait before morphing again!");
+            return;
         }
+        morphCooldown.put(player.getUniqueId(), now);
 
-        // Spawn invisible armor stand
-        ArmorStand stand = player.getWorld().spawn(player.getLocation(), ArmorStand.class, as -> {
-            as.setInvisible(true);
-            as.setGravity(false);
-            as.setMarker(true);
-            as.setSmall(false);
-            as.setInvulnerable(true);
-            as.getEquipment().setHelmet(new ItemStack(blockMaterial));
-        });
+        removeDisguise(player);
 
-        disguiseStands.put(player.getUniqueId(), stand);
+        BlockDisplay display = player.getWorld().spawn(player.getLocation(), BlockDisplay.class);
+        display.setBlock(material.createBlockData());
 
-        // Keep stand synced with player
+        // Perfect block alignment
+        Transformation transform = new Transformation(
+                new Vector3f(-0.5f, 0f, -0.5f),
+                new Quaternionf(),
+                new Vector3f(1f, 1f, 1f),
+                new Quaternionf()
+        );
+
+        display.setTransformation(transform);
+        display.setInterpolationDuration(2);
+        display.setBrightness(new Display.Brightness(15, 15));
+
+        disguises.put(player.getUniqueId(), display);
+
+        player.setInvisible(true);
+        player.setCollidable(false);
+
+        // Force hide player model from others
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            online.hidePlayer(plugin, player);
+        }
+    }
+
+    /* ========================================================= */
+    /* =================== FOLLOW PLAYER TASK =================== */
+    /* ========================================================= */
+
+    private void startFollowTask() {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!player.isOnline() || !disguiseStands.containsKey(player.getUniqueId())) {
-                    cancel();
-                    return;
-                }
+                Iterator<Map.Entry<UUID, BlockDisplay>> it = disguises.entrySet().iterator();
 
-                ArmorStand s = disguiseStands.get(player.getUniqueId());
-                if (s == null || s.isDead()) {
-                    cancel();
-                    return;
-                }
+                while (it.hasNext()) {
+                    Map.Entry<UUID, BlockDisplay> entry = it.next();
+                    Player player = Bukkit.getPlayer(entry.getKey());
+                    BlockDisplay display = entry.getValue();
 
-                Location loc = player.getLocation().clone().add(0, -1.4, 0);
-                s.teleport(loc);
+                    if (player == null || !player.isOnline() || display.isDead()) {
+                        if (display != null) display.remove();
+                        it.remove();
+                        continue;
+                    }
+
+                    display.teleport(player.getLocation());
+                }
             }
-        }.runTaskTimer(plugin, 0L, 1L);
+        }.runTaskTimer(plugin, 0, 1);
     }
 
-    /* ================= UNDISGUISE ================= */
-
-    public void undisguise(Player player) {
-        disguisedBlocks.remove(player.getUniqueId());
-
-
-        ArmorStand stand = disguiseStands.remove(player.getUniqueId());
-        if (stand != null && !stand.isDead()) stand.remove();
-
-        // Show player again
-        for (Player other : Bukkit.getOnlinePlayers()) {
-            other.showPlayer(plugin, player);
-        }
-    }
-
-    public boolean isDisguised(Player player) {
-        return disguiseStands.containsKey(player.getUniqueId());
-    }
-
-    public Material getDisguisedBlock(Player player) {
-        return disguisedBlocks.get(player.getUniqueId());
-    }
-
-    /* ================= CLEANUP ================= */
-
-    public void removeAll() {
-        for (ArmorStand stand : disguiseStands.values()) {
-            if (stand != null && !stand.isDead()) stand.remove();
-        }
-        disguiseStands.clear();
-        disguisedBlocks.clear();
-    }
-    // BACKWARD COMPATIBILITY METHODS
+    /* ========================================================= */
+    /* ================= OLD API COMPATIBILITY ================== */
+    /* ========================================================= */
 
     public void removeDisguise(Player player) {
-        undisguise(player); // call your new method
+        BlockDisplay display = disguises.remove(player.getUniqueId());
+        if (display != null) display.remove();
+
+        player.setInvisible(false);
+        player.setCollidable(true);
+
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            online.showPlayer(plugin, player);
+        }
+    }
+
+    public void undisguise(Player player) { // alias for newer calls
+        removeDisguise(player);
     }
 
     public void cleanupAll() {
-        removeAll(); // call your new cleanup method
+        for (UUID uuid : disguises.keySet()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) removeDisguise(p);
+        }
+        disguises.clear();
     }
 
-
+    public void removeAll() { cleanupAll(); } // new alias
 }

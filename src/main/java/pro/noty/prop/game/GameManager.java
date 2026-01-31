@@ -186,7 +186,9 @@ public class GameManager implements Listener {
                 count--;
             }
         }.runTaskTimer(plugin, 0, 20);
+
     }
+
 
     @EventHandler
     public void onVoteItemUse(PlayerInteractEvent e) {
